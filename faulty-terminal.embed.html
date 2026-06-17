@@ -4,6 +4,7 @@
 </style>
 
 <script type="module">
+
   import { Renderer, Program, Mesh, Color, Triangle } from 'https://esm.sh/ogl@1.0.11';
 
   // ---- GLOBAL DEFAULTS (apply to every .faulty-terminal instance) ----
@@ -20,18 +21,19 @@
     chromaticAberration: 0,
     dither: 0,
     curvature: 0.23,
-    tint: '#315763',         // glyph color
+    tint: '#366777',         // glyph color
     bgColor: '#2b464e',      // background behind glyphs (use '' to read --slate)
     mouseReact: true,
     mouseStrength: 0.7,
     pageLoadAnimation: true,
-    brightness: 0.6,
+    brightness: 0.5,
+    glyphGamma: 1.8,    // dot falloff: >1 = sharper/smaller dots, <1 = softer/fuller
     targetFPS: 30,
 
     // ---- adaptive performance ----
     dpr: 1,                  // device pixel ratio cap
     maxPixels: 1100000,      // pixel budget (~720p). Lower = faster/softer
-    renderScaleMax: 0.5,     // best quality allowed (ceiling)
+    renderScaleMax: 0.5,     // best quality allowed (your 0.5 = the ceiling)
     renderScaleMin: 0.28,    // perf floor
     autoTune: true,          // live FPS-based quality adjustment
     fpsLow: 24,              // below this -> reduce quality
@@ -68,6 +70,7 @@ uniform float uUseMouse;
 uniform float uPageLoadProgress;
 uniform float uUsePageLoadAnimation;
 uniform float uBrightness;
+      uniform float uGlyphGamma;
 float time;
 float hash21(vec2 p){ p = fract(p * 234.56); p += dot(p, p + 34.56); return fract(p.x * p.y); }
 float noise(vec2 p){ return sin(p.x * 10.0) * sin(p.y * (3.0 + sin(time * 0.090909))) + 0.2; }
@@ -142,9 +145,10 @@ void main(){
     col.r = getColor(p + ca).r;
     col.b = getColor(p - ca).b;
   }
-  col *= uTint; col *= uBrightness;
   float lum = max(col.r, max(col.g, col.b));
-  col = mix(uBgColor, col, clamp(lum, 0.0, 1.0));
+  lum = pow(clamp(lum, 0.0, 1.0), uGlyphGamma);
+  float blend = clamp(lum * uBrightness, 0.0, 1.0);
+  col = mix(uBgColor, uTint, blend);
   if(uDither > 0.0){ col += (hash21(gl_FragCoord.xy) - 0.5) * (uDither * 0.003922); }
   gl_FragColor = vec4(col, 1.0);
 }`;
@@ -177,6 +181,7 @@ void main(){
     let loadStart = 0, rafId = 0, running = false, onScreen = true;
     let tabVisible = !document.hidden;
 
+    // adaptive state
     let renderScale = opts.renderScaleMax;
     const frameInterval = 1000 / (opts.targetFPS || 30);
     let lastFrame = 0;
@@ -205,12 +210,14 @@ void main(){
         uUseMouse: { value: opts.mouseReact ? 1 : 0 },
         uPageLoadProgress: { value: opts.pageLoadAnimation ? 0 : 1 },
         uUsePageLoadAnimation: { value: opts.pageLoadAnimation ? 1 : 0 },
-        uBrightness: { value: opts.brightness }
+        uBrightness: { value: opts.brightness },
+        uGlyphGamma: { value: opts.glyphGamma != null ? opts.glyphGamma : 1.0 }
       }
     });
 
     const mesh = new Mesh(gl, { geometry, program });
 
+    // Pick a renderScale that respects both the max-quality ceiling AND the pixel budget
     function targetScaleForSize(w, h){
       const cssPixels = w * h * opts.dpr * opts.dpr;
       let s = opts.renderScaleMax;
@@ -261,6 +268,7 @@ void main(){
           renderScale = clamp(renderScale + 0.03, opts.renderScaleMin, opts.renderScaleMax);
           changed = true;
         }
+        // never exceed the pixel budget when raising
         renderScale = Math.min(renderScale, targetScaleForSize(ctn.offsetWidth, ctn.offsetHeight));
         if (changed) applySize();
       }
@@ -290,7 +298,7 @@ void main(){
     function start(){
       if (!running && onScreen && tabVisible){
         running = true;
-        fpsWindowStart = 0; fpsCount = 0;
+        fpsWindowStart = 0; fpsCount = 0;   // reset FPS sampling on resume
         rafId = requestAnimationFrame(update);
       }
     }
@@ -313,6 +321,7 @@ void main(){
   function boot(){
     const nodes = document.querySelectorAll('.faulty-terminal');
     nodes.forEach((ctn) => {
+      // per-element overrides via data-ft-opts='{"tint":"#abc"}' (optional)
       let overrides = {};
       const raw = ctn.getAttribute('data-ft-opts');
       if (raw){ try { overrides = JSON.parse(raw); } catch(e){} }
@@ -325,4 +334,5 @@ void main(){
   } else {
     boot();
   }
+
 </script>
