@@ -4,52 +4,99 @@
 </style>
 
 <script type="module">
+import { Renderer, Program, Mesh, Color, Triangle } from 'https://esm.sh/ogl@1.0.11';
 
-  import { Renderer, Program, Mesh, Color, Triangle } from 'https://esm.sh/ogl@1.0.11';
+// ── TUNING — copy/paste the exporter output here to update values ───────────
+const TUNING = {
+  // ripple
+  rippleDuration:          1150,
+  rippleColorFalloff:      2.80,
+  rippleColorAmbient:      0.52,
+  rippleColorStrength:     1.80,
+  rippleBrightness:        0.10,
+  rippleBrightnessFalloff: 0.27,
+  mwpColorStrength:        0.69,
+  rippleFadeOut:           375,
+  // aftershock
+  aftershockTriggerAt:     0.82,
+  aftershockDelay:         100,
+  aftershockDuration:      850,
+  aftershockStrength:      0.30,
+  // field
+  brightness:              0.50,
+  glyphGamma:              1.80,
+  scanlineIntensity:       1.00,
+  glitchAmount:            1.90,
+  flickerAmount:           1.10,
+  noiseAmp:                1.00,
+  curvature:               0.23,
+  mouseStrength:           0.70,
+  timeScale:               1.00,
+  digitSize:               1.40,
+};
+// ── structural params (don't touch unless you know what you're doing) ────────
+const DEFAULTS = {
+  ...TUNING,
+  scale: 2,
+  gridMul: [2, 1],
+  pause: false,
+  chromaticAberration: 0,
+  dither: 0,
+  tint: '#366777',
+  bgColor: '#2b464e',
+  mouseReact: true,
+  pageLoadAnimation: true,
+  pageLoadDelay: 1500,
+  targetFPS: 60,
+  ripple: true,
+  rippleOriginSelector: null,
+  rippleEase: true,
+  debugPanel: true,
+  aftershock: true,
+  dpr: 1,
+  maxPixels: 1100000,
+  renderScaleMax: 1,
+  renderScaleMin: 0.28,
+  autoTune: true,
+  fpsLow: 24,
+  fpsHigh: 30,
+};
 
-  // ---- GLOBAL DEFAULTS (apply to every .faulty-terminal instance) ----
-  const DEFAULTS = {
-    scale: 2,
-    gridMul: [2, 1],
-    digitSize: 1.4,
-    timeScale: 1,
-    pause: false,
-    scanlineIntensity: 1,
-    glitchAmount: 1.9,
-    flickerAmount: 1.1,
-    noiseAmp: 1,
-    chromaticAberration: 0,
-    dither: 0,
-    curvature: 0.23,
-    tint: '#366777',         // glyph color
-    bgColor: '#2b464e',      // background behind glyphs (use '' to read --slate)
-    mouseReact: true,
-    mouseStrength: 0.7,
-    pageLoadAnimation: true,
-    pageLoadDelay: 1500,       // ms to wait before the load animation begins
-    mwpColorStrength: 0.4,     // 0–1: how strongly the MWP palette tints show
-    brightness: 0.5,
-    glyphGamma: 1.8,    // dot falloff: >1 = sharper/smaller dots, <1 = softer/fuller
-    targetFPS: 30,
+// Slider definitions shared between createInstance and buildDebugPanel
+// [key, uniformName|null, label, min, max, step, section]
+const SLIDERS = [
+  ['rippleDuration',        null,                       'duration (ms)',   300,  5000, 50,   'RIPPLE'],
+  ['rippleColorFalloff',    'uRippleColorFalloff',      'trail curve',     0.1,  6.0,  0.1,  'RIPPLE'],
+  ['rippleColorAmbient',    'uRippleColorAmbient',      'trail strength',  0.0,  1.0,  0.01, 'RIPPLE'],
+  ['rippleColorStrength',   'uRippleColorStrength',     'colour strength', 0.0,  2.0,  0.05, 'RIPPLE'],
+  ['rippleBrightness',      'uRippleBrightness',        'glyph boost',     0.0,  4.0,  0.05, 'RIPPLE'],
+  ['rippleBrightnessFalloff','uRippleBrightnessFalloff','glow width',      0.01, 1.5,  0.01, 'RIPPLE'],
+  ['mwpColorStrength',      'uMwpColorStrength',        'MWP colour',      0.0,  1.0,  0.01, 'RIPPLE'],
+  ['rippleFadeOut',         null,                       'trail fade (ms)', 0,    800,  25,   'RIPPLE'],
+  ['aftershock',            null,                       'enabled',         null, null, null, 'AFTERSHOCK', 'bool'],
+  ['aftershockTriggerAt',   null,                       'trigger at',      0.0,  1.0,  0.05, 'AFTERSHOCK'],
+  ['aftershockDelay',       null,                       'delay (ms)',      0,    2000, 25,   'AFTERSHOCK'],
+  ['aftershockDuration',    null,                       'duration (ms)',   100,  3000, 50,   'AFTERSHOCK'],
+  ['aftershockStrength',    'uAftershockStrength',      'strength',        0.0,  2.0,  0.05, 'AFTERSHOCK'],
+  ['brightness',            'uBrightness',              'brightness',      0.1,  2.0,  0.05, 'FIELD'],
+  ['glyphGamma',            'uGlyphGamma',              'glyph gamma',     0.5,  4.0,  0.1,  'FIELD'],
+  ['scanlineIntensity',     'uScanlineIntensity',       'scanlines',       0.0,  2.0,  0.05, 'FIELD'],
+  ['glitchAmount',          'uGlitchAmount',            'glitch',          0.0,  4.0,  0.1,  'FIELD'],
+  ['flickerAmount',         'uFlickerAmount',           'flicker',         0.0,  2.0,  0.05, 'FIELD'],
+  ['noiseAmp',              'uNoiseAmp',                'noise',           0.0,  3.0,  0.05, 'FIELD'],
+  ['curvature',             'uCurvature',               'curvature',       0.0,  0.5,  0.01, 'FIELD'],
+  ['mouseStrength',         'uMouseStrength',           'mouse',           0.0,  2.0,  0.05, 'FIELD'],
+  ['timeScale',             null,                       'time scale',      0.0,  3.0,  0.05, 'FIELD'],
+  ['digitSize',             'uDigitSize',               'digit size',      0.5,  2.5,  0.05, 'FIELD'],
+];
 
-    // ---- adaptive performance ----
-    dpr: 1,                  // device pixel ratio cap
-    maxPixels: 1100000,      // pixel budget (~720p). Lower = faster/softer
-    renderScaleMax: 0.5,     // best quality allowed (your 0.5 = the ceiling)
-    renderScaleMin: 0.28,    // perf floor
-    autoTune: true,          // live FPS-based quality adjustment
-    fpsLow: 24,              // below this -> reduce quality
-    fpsHigh: 29              // above this -> try to raise quality (near targetFPS)
-  };
-  // --------------------------------------------------------------------
-
-  const vertexShader = `
+const vertexShader = `
 attribute vec2 position;
 attribute vec2 uv;
 varying vec2 vUv;
 void main(){ vUv = uv; gl_Position = vec4(position, 0.0, 1.0); }`;
 
-  const fragmentShader = `
+const fragmentShader = `
 precision mediump float;
 varying vec2 vUv;
 uniform float iTime;
@@ -74,30 +121,42 @@ uniform float uUsePageLoadAnimation;
 uniform float uBrightness;
 uniform float uGlyphGamma;
 uniform float uMwpColorStrength;
+uniform float uRippleActive;
+uniform float uRippleProgress;
+uniform vec2  uRippleOrigin;
+uniform vec3  uRippleColor0;
+uniform vec3  uRippleColor1;
+uniform vec3  uRippleColor2;
+uniform float uRippleColorFalloff;
+uniform float uRippleColorAmbient;
+uniform float uRippleColorStrength;
+uniform float uRippleBrightness;
+uniform float uRippleBrightnessFalloff;
+uniform float uAftershockActive;
+uniform float uAftershockProgress;
+uniform float uAftershockStrength;
+uniform float uRippleFade;
 float time;
 float hash21(vec2 p){ p = fract(p * 234.56); p += dot(p, p + 34.56); return fract(p.x * p.y); }
 float noise(vec2 p){ return sin(p.x * 10.0) * sin(p.y * (3.0 + sin(time * 0.090909))) + 0.2; }
-mat2 rotate(float angle){ float c = cos(angle); float s = sin(angle); return mat2(c, -s, s, c); }
+mat2 rotate(float angle){ float c = cos(angle); float s = sin(angle); return mat2(c,-s,s,c); }
 
-// 5x5 character lookup — explicit step checks, no bit arithmetic
 float getCharBit(float charIdx, float row, float col) {
   float r0=step(abs(row),0.49),       r1=step(abs(row-1.0),0.49), r2=step(abs(row-2.0),0.49);
   float r3=step(abs(row-3.0),0.49),   r4=step(abs(row-4.0),0.49);
   float c0=step(abs(col),0.49),       c1=step(abs(col-1.0),0.49), c2=step(abs(col-2.0),0.49);
   float c3=step(abs(col-3.0),0.49),   c4=step(abs(col-4.0),0.49);
   float any_col = clamp(c0+c1+c2+c3+c4, 0.0, 1.0);
-  float outer   = clamp(c0+c4, 0.0, 1.0);   // cols 0 and 4
-  float inner   = clamp(c1+c3, 0.0, 1.0);   // cols 1 and 3
-  // M: outer cols always; shoulders (1,3) on row 1; notch (col 2) on row 2
+  float outer   = clamp(c0+c4, 0.0, 1.0);
+  float inner   = clamp(c1+c3, 0.0, 1.0);
   float mBit = clamp(outer + r1*inner + r2*c2, 0.0, 1.0);
-  // W: outer cols rows 0-3; centre col 2 on row 2; inner cols (1,3) on rows 3-4
   float wBit = clamp((r0+r1+r2+r3)*outer + r2*c2 + (r3+r4)*inner, 0.0, 1.0);
-  // P: full bar rows 0 & 2; outer sides row 1; left stem (col 0) rows 3 & 4
   float pBit = clamp((r0+r2)*any_col + r1*outer + (r3+r4)*c0, 0.0, 1.0);
   float mSel = step(charIdx, 0.49);
   float pSel = step(1.51, charIdx);
   return mBit*mSel + wBit*(1.0-mSel-pSel) + pBit*pSel;
 }
+
 float fbm(vec2 p){
   p *= 1.1; float f = 0.0; float amp = 0.5 * uNoiseAmp;
   mat2 m0 = rotate(time * 0.02); f += amp * noise(p); p = m0 * p * 2.0; amp *= 0.454545;
@@ -111,6 +170,7 @@ float pattern(vec2 p, out vec2 q, out vec2 r){
   r = vec2(fbm(rot1 * q + o0), fbm(q + o0));
   return fbm(p + r);
 }
+
 float digit(vec2 p){
   vec2 grid = uGridMul * 15.0;
   vec2 s = floor(p * grid) / grid;
@@ -125,7 +185,22 @@ float digit(vec2 p){
     intensity += sin(d * 20.0 - iTime * 5.0) * 0.1 * mi;
   }
   float loadFactor = 1.0;
-  if(uUsePageLoadAnimation > 0.5){
+  if (uRippleActive > 0.5) {
+    vec2 s_uv = s / uScale;
+    vec2 dh = s_uv - uRippleOrigin;
+    dh.x *= iResolution.z;
+    float dist = length(dh);
+    float radius = uRippleProgress * 2.5;
+    float buildHash = hash21(s * 43.7 + vec2(1.23, 4.56));
+    float edge = radius - dist;
+    loadFactor = smoothstep(-0.05 - buildHash * 0.35, 0.25, edge);
+    intensity *= loadFactor;
+    // Glyph brightness boost at ring front — makes individual dots glow
+    float ringBoost = step(0.0, edge)
+      * smoothstep(uRippleBrightnessFalloff, 0.0, edge)
+      * uRippleBrightness;
+    intensity *= (1.0 + ringBoost);
+  } else if (uUsePageLoadAnimation > 0.5) {
     float cr = fract(sin(dot(s, vec2(12.9898, 78.233))) * 43758.5453);
     float cd = cr * 0.8;
     float cp = clamp((uPageLoadProgress - cd) / 0.2, 0.0, 1.0);
@@ -136,7 +211,6 @@ float digit(vec2 p){
   float px5 = p.x * 5.0; float py5 = (1.0 - p.y) * 5.0;
   float x = fract(px5); float y = fract(py5);
   float i = floor(py5) - 2.0; float j = floor(px5) - 2.0;
-  // MWP: sub-cell — characters live inside the glyph's own 5x5 dot grid
   float cellHash = hash21(s * 71.3 + vec2(5.3, 2.7));
   float isLetterCell = step(0.85, cellHash);
   float flickerSpeed = 1.2 + cellHash * 2.5;
@@ -146,7 +220,6 @@ float digit(vec2 p){
   float charIdx = clamp(floor(hash21(s * 3.7 + vec2(timeStep * 0.11, 1.23)) * 3.0), 0.0, 2.0);
   float charPixel = getCharBit(charIdx, i + 2.0, j + 2.0);
   intensity += showChar * (charPixel * 0.7 - 0.2) * loadFactor;
-
   float n = i * i + j * j; float f = n * 0.0625;
   float isOn = step(0.1, intensity - f);
   float brightness = isOn * (0.2 + y * 0.8) * (0.75 + x * 0.25);
@@ -169,7 +242,8 @@ vec3 getColor(vec2 p){
               digit(p + vec2(off,0.0)) + digit(p + vec2(0.0,off));
   return vec3(0.9) * middle + sum * 0.18 * vec3(1.0) * bar;
 }
-vec2 barrel(vec2 uv){ vec2 c = uv * 2.0 - 1.0; float r2 = dot(c, c); c *= 1.0 + uCurvature * r2; return c * 0.5 + 0.5; }
+vec2 barrel(vec2 uv){ vec2 c = uv * 2.0 - 1.0; float r2 = dot(c,c); c *= 1.0 + uCurvature * r2; return c * 0.5 + 0.5; }
+
 void main(){
   time = iTime * 0.333333;
   vec2 uv = vUv;
@@ -185,7 +259,51 @@ void main(){
   lum = pow(clamp(lum, 0.0, 1.0), uGlyphGamma);
   float blend = clamp(lum * uBrightness, 0.0, 1.0);
   col = mix(uBgColor, uTint, blend);
-  // MWP palette tint — recompute char state for centre pixel, colour lit dots only
+
+  // Ripple colour — screen blend on glyph pixels only (no visible disc on background)
+  if (uRippleActive > 0.5 && uRippleProgress > 0.001) {
+    vec2 dh = uv - uRippleOrigin;
+    dh.x *= iResolution.z;
+    float dist = length(dh);
+    float radius = uRippleProgress * 2.5;
+    float edge = radius - dist;
+    float isRevealed = smoothstep(0.05, -0.05, dist - radius);
+    // Colour at ring front (travels with the ring)
+    float ringStr = step(0.0, edge) * smoothstep(uRippleBrightnessFalloff, 0.0, edge);
+    // Colour trail behind ring (decays from origin, controlled by ambient)
+    float colorAge = clamp(dist / max(radius, 0.001), 0.0, 1.0);
+    float trailStr = pow(1.0 - colorAge, uRippleColorFalloff) * isRevealed * uRippleColorAmbient;
+    float totalStr = clamp(ringStr + trailStr, 0.0, 1.0) * uRippleColorStrength * uRippleFade;
+    // Brand colour gradient by Y
+    float yFrac = clamp(uv.y, 0.0, 1.0);
+    vec3 flashCol = yFrac > 0.5
+      ? mix(uRippleColor1, uRippleColor0, (yFrac - 0.5) * 2.0)
+      : mix(uRippleColor2, uRippleColor1, yFrac * 2.0);
+    // Screen blend — lightens glyph dots with brand colour, invisible on dark background
+    vec3 screened = 1.0 - (1.0 - col) * (1.0 - flashCol * totalStr);
+    col = mix(col, screened, blend);
+    col = clamp(col, 0.0, 1.0);
+  }
+
+  // Aftershock — secondary ring, no trail, same colour gradient
+  if (uAftershockActive > 0.5 && uAftershockProgress > 0.001) {
+    vec2 adh = uv - uRippleOrigin;
+    adh.x *= iResolution.z;
+    float adist = length(adh);
+    float aradius = uAftershockProgress * 2.5;
+    float aedge = aradius - adist;
+    float aringStr = step(0.0, aedge) * smoothstep(uRippleBrightnessFalloff, 0.0, aedge);
+    float atotalStr = aringStr * uAftershockStrength;
+    float yFracA = clamp(uv.y, 0.0, 1.0);
+    vec3 aflashCol = yFracA > 0.5
+      ? mix(uRippleColor1, uRippleColor0, (yFracA - 0.5) * 2.0)
+      : mix(uRippleColor2, uRippleColor1, yFracA * 2.0);
+    vec3 ascreened = 1.0 - (1.0 - col) * (1.0 - aflashCol * atotalStr);
+    col = mix(col, ascreened, blend);
+    col = clamp(col, 0.0, 1.0);
+  }
+
+  // MWP palette tint
   vec2 grid_c = uGridMul * 15.0;
   vec2 s_c = floor(p * grid_c) / grid_c;
   vec2 pc = fract(p * grid_c) * uDigitSize;
@@ -197,196 +315,484 @@ void main(){
   float ci = clamp(floor(hash21(s_c * 3.7 + vec2(ts * 0.11, 1.23)) * 3.0), 0.0, 2.0);
   float cp = getCharBit(ci, ic + 2.0, jc + 2.0);
   float ms = step(ci, 0.49); float ps = step(1.51, ci);
-  vec3 mwpCol = vec3(0.91,0.31,0.36)*ms                // M → pink
-              + vec3(0.95,0.53,0.27)*(1.0-ms-ps)        // W → orange
-              + vec3(0.24,0.75,0.59)*ps;                 // P → teal
+  vec3 mwpCol = vec3(0.91,0.31,0.36)*ms
+              + vec3(0.95,0.53,0.27)*(1.0-ms-ps)
+              + vec3(0.24,0.75,0.59)*ps;
   col = mix(col, mix(uBgColor, mwpCol, blend), sc * cp * uMwpColorStrength);
   if(uDither > 0.0){ col += (hash21(gl_FragCoord.xy) - 0.5) * (uDither * 0.003922); }
   gl_FragColor = vec4(col, 1.0);
 }`;
 
-  function hexToRgb(hex){
-    let h = (hex || '').replace('#','').trim();
-    if (h.length === 3) h = h.split('').map(c => c + c).join('');
-    const num = parseInt(h, 16);
-    return [((num >> 16) & 255) / 255, ((num >> 8) & 255) / 255, (num & 255) / 255];
+// ─── helpers ───────────────────────────────────────────────────────────────
+function hexToRgb(hex){
+  let h = (hex||'').replace('#','').trim();
+  if(h.length===3) h = h.split('').map(c=>c+c).join('');
+  const n = parseInt(h,16);
+  return [((n>>16)&255)/255,((n>>8)&255)/255,(n&255)/255];
+}
+const clamp = (v,lo,hi) => Math.min(hi,Math.max(lo,v));
+const fmt = (v,step) => step < 1 ? (+v).toFixed(2) : String(Math.round(v));
+
+// ─── createInstance ─────────────────────────────────────────────────────────
+function createInstance(ctn, opts){
+  let bgHex = opts.bgColor;
+  if(!bgHex){
+    const v = getComputedStyle(ctn).getPropertyValue('--slate').trim();
+    bgHex = v||'#2b464e';
   }
-  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  function cssColor(varName,fallback){
+    const v = getComputedStyle(document.documentElement).getPropertyValue(varName).trim()
+           || getComputedStyle(ctn).getPropertyValue(varName).trim();
+    return hexToRgb(v||fallback);
+  }
+  const rippleC0 = cssColor('--raspberry','#E84F5C');
+  const rippleC1 = cssColor('--coral','#F28745');
+  const rippleC2 = cssColor('--teal','#3DC096');
 
-  function createInstance(ctn, opts){
-    let bgHex = opts.bgColor;
-    if (!bgHex){
-      const v = getComputedStyle(ctn).getPropertyValue('--slate').trim();
-      bgHex = v || '#2b464e';
+  const renderer = new Renderer({ dpr: opts.dpr });
+  const gl = renderer.gl;
+  const bg = hexToRgb(bgHex);
+  gl.clearColor(bg[0],bg[1],bg[2],1);
+
+  const geometry = new Triangle(gl);
+  const tint = hexToRgb(opts.tint);
+  const mouse = {x:0.5,y:0.5};
+  const smoothMouse = {x:0.5,y:0.5};
+  const timeOffset = Math.random()*100;
+  let loadStart=0, rafId=0, running=false, onScreen=true;
+  let tabVisible = !document.hidden;
+  let rippleTriggered=false, rippleStartTime=-1;
+  let rippleDurationRef = opts.rippleDuration||1500;
+  let aftershockTriggered=false, aftershockStartTime=-1, aftershockDurationRef=opts.aftershockDuration||700;
+  let aftershockDelayRef=opts.aftershockDelay||0, aftershockTriggerAtRef=opts.aftershockTriggerAt??0.82;
+  let rippleFadeStartTime=-1, rippleFadeOutRef=opts.rippleFadeOut??280;
+  let renderScale = opts.renderScaleMax;
+  const frameInterval = 1000/(opts.targetFPS||30);
+  let lastFrame=0, fpsCount=0, fpsWindowStart=0;
+
+  const program = new Program(gl,{
+    vertex: vertexShader,
+    fragment: fragmentShader,
+    uniforms: {
+      iTime:                    {value:0},
+      iResolution:              {value:new Color(1,1,1)},
+      uScale:                   {value:opts.scale},
+      uGridMul:                 {value:new Float32Array(opts.gridMul)},
+      uDigitSize:               {value:opts.digitSize},
+      uScanlineIntensity:       {value:opts.scanlineIntensity},
+      uGlitchAmount:            {value:opts.glitchAmount},
+      uFlickerAmount:           {value:opts.flickerAmount},
+      uNoiseAmp:                {value:opts.noiseAmp},
+      uChromaticAberration:     {value:opts.chromaticAberration},
+      uDither:                  {value:typeof opts.dither==='boolean'?(opts.dither?1:0):opts.dither},
+      uCurvature:               {value:opts.curvature},
+      uTint:                    {value:new Color(tint[0],tint[1],tint[2])},
+      uBgColor:                 {value:new Color(bg[0],bg[1],bg[2])},
+      uMouse:                   {value:new Float32Array([0.5,0.5])},
+      uMouseStrength:           {value:opts.mouseStrength},
+      uUseMouse:                {value:opts.mouseReact?1:0},
+      uPageLoadProgress:        {value:opts.pageLoadAnimation?0:1},
+      uUsePageLoadAnimation:    {value:opts.pageLoadAnimation?1:0},
+      uBrightness:              {value:opts.brightness},
+      uGlyphGamma:              {value:opts.glyphGamma??1.0},
+      uMwpColorStrength:        {value:opts.mwpColorStrength??0.5},
+      uRippleActive:            {value:0},
+      uRippleProgress:          {value:0},
+      uRippleOrigin:            {value:new Float32Array([0.5,0.5])},
+      uRippleColor0:            {value:new Color(rippleC0[0],rippleC0[1],rippleC0[2])},
+      uRippleColor1:            {value:new Color(rippleC1[0],rippleC1[1],rippleC1[2])},
+      uRippleColor2:            {value:new Color(rippleC2[0],rippleC2[1],rippleC2[2])},
+      uRippleColorFalloff:      {value:opts.rippleColorFalloff??1.5},
+      uRippleColorAmbient:      {value:opts.rippleColorAmbient??0.3},
+      uRippleColorStrength:     {value:opts.rippleColorStrength??1.2},
+      uRippleBrightness:        {value:opts.rippleBrightness??1.0},
+      uRippleBrightnessFalloff: {value:opts.rippleBrightnessFalloff??0.2},
+      uAftershockActive:        {value:0},
+      uAftershockProgress:      {value:0},
+      uAftershockStrength:      {value:opts.aftershockStrength??0.3},
+      uRippleFade:              {value:1},
     }
+  });
+  const mesh = new Mesh(gl,{geometry,program});
 
-    const renderer = new Renderer({ dpr: opts.dpr });
-    const gl = renderer.gl;
-    const bg = hexToRgb(bgHex);
-    gl.clearColor(bg[0], bg[1], bg[2], 1);
+  function targetScaleForSize(w,h){
+    const px = w*h*opts.dpr*opts.dpr;
+    let s = opts.renderScaleMax;
+    if(px*s*s > opts.maxPixels) s = Math.sqrt(opts.maxPixels/px);
+    return clamp(s,opts.renderScaleMin,opts.renderScaleMax);
+  }
+  function applySize(){
+    const w=Math.max(1,ctn.offsetWidth), h=Math.max(1,ctn.offsetHeight);
+    renderer.setSize(Math.max(1,Math.floor(w*renderScale)),Math.max(1,Math.floor(h*renderScale)));
+    gl.canvas.style.width='100%'; gl.canvas.style.height='100%';
+    program.uniforms.iResolution.value = new Color(gl.canvas.width,gl.canvas.height,gl.canvas.width/gl.canvas.height);
+  }
+  function resize(){ renderScale=targetScaleForSize(ctn.offsetWidth,ctn.offsetHeight); applySize(); }
+  new ResizeObserver(resize).observe(ctn);
+  resize();
 
-    const geometry = new Triangle(gl);
-    const tint = hexToRgb(opts.tint);
-    const mouse = { x: 0.5, y: 0.5 };
-    const smoothMouse = { x: 0.5, y: 0.5 };
-    const timeOffset = Math.random() * 100;
-    let loadStart = 0, rafId = 0, running = false, onScreen = true;
-    let tabVisible = !document.hidden;
+  if(opts.mouseReact) document.addEventListener('mousemove',e=>{
+    const r=ctn.getBoundingClientRect();
+    mouse.x=(e.clientX-r.left)/r.width;
+    mouse.y=1-(e.clientY-r.top)/r.height;
+  });
 
-    // adaptive state
-    let renderScale = opts.renderScaleMax;
-    const frameInterval = 1000 / (opts.targetFPS || 30);
-    let lastFrame = 0;
-    let fpsCount = 0, fpsWindowStart = 0;
+  // ── ripple ──
+  const hasRippleClass = () =>
+    ctn.classList.contains('--does-ripple')||ctn.classList.contains('does-ripple');
 
-    const program = new Program(gl, {
-      vertex: vertexShader,
-      fragment: fragmentShader,
-      uniforms: {
-        iTime: { value: 0 },
-        iResolution: { value: new Color(1, 1, 1) },
-        uScale: { value: opts.scale },
-        uGridMul: { value: new Float32Array(opts.gridMul) },
-        uDigitSize: { value: opts.digitSize },
-        uScanlineIntensity: { value: opts.scanlineIntensity },
-        uGlitchAmount: { value: opts.glitchAmount },
-        uFlickerAmount: { value: opts.flickerAmount },
-        uNoiseAmp: { value: opts.noiseAmp },
-        uChromaticAberration: { value: opts.chromaticAberration },
-        uDither: { value: typeof opts.dither === 'boolean' ? (opts.dither ? 1 : 0) : opts.dither },
-        uCurvature: { value: opts.curvature },
-        uTint: { value: new Color(tint[0], tint[1], tint[2]) },
-        uBgColor: { value: new Color(bg[0], bg[1], bg[2]) },
-        uMouse: { value: new Float32Array([smoothMouse.x, smoothMouse.y]) },
-        uMouseStrength: { value: opts.mouseStrength },
-        uUseMouse: { value: opts.mouseReact ? 1 : 0 },
-        uPageLoadProgress: { value: opts.pageLoadAnimation ? 0 : 1 },
-        uUsePageLoadAnimation: { value: opts.pageLoadAnimation ? 1 : 0 },
-        uBrightness: { value: opts.brightness },
-        uGlyphGamma: { value: opts.glyphGamma != null ? opts.glyphGamma : 1.0 },
-        uMwpColorStrength: { value: opts.mwpColorStrength != null ? opts.mwpColorStrength : 0.4 }
+  function triggerRipple(){
+    if(rippleTriggered) return;
+    rippleTriggered=true;
+    const originEl = opts.rippleOriginSelector ? document.querySelector(opts.rippleOriginSelector) : ctn;
+    const er=(originEl||ctn).getBoundingClientRect();
+    const cr=ctn.getBoundingClientRect();
+    program.uniforms.uRippleOrigin.value[0]=Math.max(0,Math.min(1,(er.left+er.width*0.5-cr.left)/cr.width));
+    program.uniforms.uRippleOrigin.value[1]=Math.max(0,Math.min(1,1-(er.top+er.height*0.5-cr.top)/cr.height));
+    program.uniforms.uRippleActive.value=1;
+    program.uniforms.uRippleProgress.value=0;
+    rippleStartTime=performance.now();
+  }
+
+  if(opts.ripple){
+    program.uniforms.uPageLoadProgress.value=0;
+    program.uniforms.uUsePageLoadAnimation.value=1;
+    if(hasRippleClass()) triggerRipple();
+    else new MutationObserver(()=>{ if(hasRippleClass()) triggerRipple(); })
+      .observe(ctn,{attributes:true,attributeFilter:['class']});
+  }
+
+  function autoTune(now){
+    if(!opts.autoTune) return;
+    fpsCount++;
+    if(fpsWindowStart===0) fpsWindowStart=now;
+    const span=now-fpsWindowStart;
+    if(span>=1000){
+      const fps=(fpsCount*1000)/span;
+      fpsCount=0; fpsWindowStart=now;
+      let changed=false;
+      if(fps<opts.fpsLow && renderScale>opts.renderScaleMin){ renderScale=clamp(renderScale-0.06,opts.renderScaleMin,opts.renderScaleMax); changed=true; }
+      else if(fps>opts.fpsHigh && renderScale<opts.renderScaleMax){ renderScale=clamp(renderScale+0.03,opts.renderScaleMin,opts.renderScaleMax); changed=true; }
+      renderScale=Math.min(renderScale,targetScaleForSize(ctn.offsetWidth,ctn.offsetHeight));
+      if(changed) applySize();
+    }
+  }
+
+  function update(t){
+    rafId=requestAnimationFrame(update);
+    if(t-lastFrame<frameInterval) return;
+    lastFrame=t;
+    autoTune(t);
+    if(!opts.pause) program.uniforms.iTime.value=(t*0.001+timeOffset)*opts.timeScale;
+    if(opts.ripple && rippleTriggered){
+      const rawRp=Math.min((t-rippleStartTime)/rippleDurationRef,1.0);
+      const rp=opts.rippleEase!==false
+        ?(rawRp<0.5?2*rawRp*rawRp:1-Math.pow(-2*rawRp+2,2)/2)
+        :rawRp;
+      program.uniforms.uRippleProgress.value=rp;
+      // Trigger aftershock at configurable progress point
+      if(opts.aftershock && !aftershockTriggered && rp>=aftershockTriggerAtRef){
+        aftershockTriggered=true;
+        aftershockStartTime=t+aftershockDelayRef;
+      }
+      if(rp>=1.0 && rippleFadeStartTime<0){
+        rippleFadeStartTime=t;
+        program.uniforms.uPageLoadProgress.value=1;
+      }
+      // Fade the trail colour out smoothly instead of hard-cutting
+      if(rippleFadeStartTime>=0){
+        const fadeElapsed=t-rippleFadeStartTime;
+        const fadeFrac=Math.min(fadeElapsed/Math.max(rippleFadeOutRef,1),1.0);
+        program.uniforms.uRippleFade.value=1.0-fadeFrac;
+        if(fadeFrac>=1.0 && program.uniforms.uRippleActive.value>0.5)
+          program.uniforms.uRippleActive.value=0;
+      }
+    }
+    if(opts.aftershock && aftershockTriggered){
+      const elapsed=t-aftershockStartTime;
+      if(elapsed>=0){
+        if(program.uniforms.uAftershockActive.value<0.5)
+          program.uniforms.uAftershockActive.value=1;
+        const rawAp=Math.min(elapsed/aftershockDurationRef,1.0);
+        const ap=rawAp<0.5?2*rawAp*rawAp:1-Math.pow(-2*rawAp+2,2)/2;
+        program.uniforms.uAftershockProgress.value=ap;
+        if(ap>=1.0 && program.uniforms.uAftershockActive.value>0.5)
+          program.uniforms.uAftershockActive.value=0;
+      }
+    }
+    if(opts.pageLoadAnimation && !opts.ripple){
+      if(loadStart===0) loadStart=t;
+      const elapsed=t-loadStart-(opts.pageLoadDelay||0);
+      program.uniforms.uPageLoadProgress.value=Math.min(Math.max(elapsed,0)/2000,1);
+    }
+    if(opts.mouseReact){
+      smoothMouse.x+=(mouse.x-smoothMouse.x)*0.08;
+      smoothMouse.y+=(mouse.y-smoothMouse.y)*0.08;
+      program.uniforms.uMouse.value[0]=smoothMouse.x;
+      program.uniforms.uMouse.value[1]=smoothMouse.y;
+    }
+    renderer.render({scene:mesh});
+  }
+
+  function start(){
+    if(!running && onScreen && tabVisible){
+      running=true; fpsWindowStart=0; fpsCount=0;
+      // Reset ripple clock if triggered while offscreen (prevents instant-complete)
+      if(opts.ripple && rippleTriggered && program.uniforms.uRippleActive.value>0.5)
+        rippleStartTime=performance.now();
+      rafId=requestAnimationFrame(update);
+    }
+  }
+  function stop(){ if(running){ running=false; cancelAnimationFrame(rafId); } }
+
+  new IntersectionObserver(entries=>{
+    onScreen=entries[0].isIntersecting; onScreen?start():stop();
+  },{threshold:0}).observe(ctn);
+  document.addEventListener('visibilitychange',()=>{
+    tabVisible=!document.hidden; tabVisible?start():stop();
+  });
+  ctn.appendChild(gl.canvas);
+  start();
+
+  // ── public interface ─────────────────────────────────────────────────────
+  const unifMap = Object.fromEntries(
+    SLIDERS.filter(d=>d[1]).map(d=>[d[0],d[1]])
+  );
+
+  function setParam(key,val){
+    const uName=unifMap[key];
+    if(uName && program.uniforms[uName]!=null) program.uniforms[uName].value=val;
+    if(key==='rippleDuration') rippleDurationRef=val;
+    if(key==='rippleFadeOut') rippleFadeOutRef=val;
+    if(key==='aftershockDelay') aftershockDelayRef=val;
+    if(key==='aftershockDuration') aftershockDurationRef=val;
+    if(key==='aftershockTriggerAt') aftershockTriggerAtRef=val;
+    if(key==='aftershock') opts.aftershock=val;
+    if(key==='timeScale') opts.timeScale=val;
+  }
+
+  function getParam(key){
+    const uName=unifMap[key];
+    if(uName && program.uniforms[uName]!=null) return program.uniforms[uName].value;
+    if(key==='rippleDuration') return rippleDurationRef;
+    if(key==='rippleFadeOut') return rippleFadeOutRef;
+    if(key==='aftershockDelay') return aftershockDelayRef;
+    if(key==='aftershockDuration') return aftershockDurationRef;
+    if(key==='aftershockTriggerAt') return aftershockTriggerAtRef;
+    if(key==='timeScale') return opts.timeScale;
+    return opts[key];
+  }
+
+  function retrigger(){
+    const originEl = opts.rippleOriginSelector ? document.querySelector(opts.rippleOriginSelector) : ctn;
+    const er=(originEl||ctn).getBoundingClientRect();
+    const cr=ctn.getBoundingClientRect();
+    program.uniforms.uRippleOrigin.value[0]=Math.max(0,Math.min(1,(er.left+er.width*0.5-cr.left)/cr.width));
+    program.uniforms.uRippleOrigin.value[1]=Math.max(0,Math.min(1,1-(er.top+er.height*0.5-cr.top)/cr.height));
+    program.uniforms.uRippleActive.value=1;
+    program.uniforms.uRippleProgress.value=0;
+    program.uniforms.uPageLoadProgress.value=0;
+    program.uniforms.uAftershockActive.value=0;
+    program.uniforms.uAftershockProgress.value=0;
+    program.uniforms.uRippleFade.value=1;
+    rippleTriggered=true;
+    rippleStartTime=performance.now();
+    aftershockTriggered=false;
+    aftershockStartTime=-1;
+    rippleFadeStartTime=-1;
+  }
+
+  return { ctn, opts, setParam, getParam, retrigger, hasRipple: opts.ripple };
+}
+
+// ─── debug panel (single, shared) ──────────────────────────────────────────
+function buildDebugPanel(instances){
+  if(!instances.length) return;
+
+  if(!document.getElementById('ft-debug-styles')){
+    const s=document.createElement('style');
+    s.id='ft-debug-styles';
+    s.textContent=`
+      #ft-debug{position:fixed;top:16px;right:16px;z-index:99999;width:310px;max-height:88vh;
+        display:flex;flex-direction:column;background:rgba(8,12,16,0.93);color:#ccc;
+        font:11px/1.5 monospace;border:1px solid #2a3a40;border-radius:8px;
+        box-shadow:0 8px 32px rgba(0,0,0,0.6);backdrop-filter:blur(10px);}
+      #ft-debug.ft-hidden{display:none;}
+      #ft-dbh{padding:8px 12px;background:rgba(255,255,255,0.05);display:flex;
+        justify-content:space-between;align-items:center;border-radius:8px 8px 0 0;
+        border-bottom:1px solid #1a2a30;flex-shrink:0;}
+      #ft-dbh b{color:#fff;letter-spacing:.04em;}
+      #ft-dbh small{color:#445;font-size:10px;}
+      #ft-ibar{padding:6px 12px;display:flex;align-items:center;gap:6px;
+        border-bottom:1px solid #1a2a30;flex-shrink:0;}
+      #ft-ibar button{background:rgba(255,255,255,0.07);border:1px solid #333;color:#aaa;
+        width:22px;height:22px;border-radius:4px;cursor:pointer;font:11px monospace;
+        display:flex;align-items:center;justify-content:center;padding:0;}
+      #ft-ibar button:hover{background:rgba(255,255,255,0.14);color:#fff;}
+      #ft-ilabel{flex:1;text-align:center;color:#7ab;font-size:11px;}
+      #ft-dbb{flex:1;overflow-y:auto;padding:6px 0;}
+      #ft-dbb::-webkit-scrollbar{width:4px;}
+      #ft-dbb::-webkit-scrollbar-track{background:transparent;}
+      #ft-dbb::-webkit-scrollbar-thumb{background:#2a3a40;border-radius:2px;}
+      .ft-sec{padding:4px 12px 2px;color:#3dc096;font-size:10px;letter-spacing:.1em;
+        border-top:1px solid #1a2a30;margin-top:4px;}
+      .ft-sec:first-child{border-top:none;margin-top:0;}
+      .ft-row{display:grid;grid-template-columns:100px 1fr 40px;align-items:center;
+        gap:4px;padding:2px 12px;}
+      .ft-row label{color:#778;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default;}
+      .ft-row input[type=range]{accent-color:#3dc096;cursor:pointer;width:100%;}
+      .ft-row .ftv{color:#ddd;text-align:right;font-size:11px;}
+      #ft-dbf{padding:8px 12px;display:flex;gap:6px;border-top:1px solid #1a2a30;flex-shrink:0;}
+      #ft-dbf button{flex:1;padding:5px 0;background:rgba(255,255,255,0.06);color:#bbb;
+        border:1px solid #2a3a40;border-radius:4px;cursor:pointer;font:11px monospace;
+        transition:background .15s;}
+      #ft-dbf button:hover{background:rgba(255,255,255,0.13);color:#fff;}
+      #ft-retrigger{border-color:#3dc096!important;color:#3dc096!important;}
+      #ft-retrigger:hover{background:rgba(61,192,150,0.15)!important;}
+      #ft-retrigger:disabled{opacity:.35;cursor:not-allowed;}
+    `;
+    document.head.appendChild(s);
+  }
+
+  const panel=document.createElement('div');
+  panel.id='ft-debug';
+  document.body.appendChild(panel);
+
+  panel.innerHTML=`
+    <div id="ft-dbh"><b>🎛 ft debug</b><small>\` toggle</small></div>
+    <div id="ft-ibar">
+      <button id="ft-prev">◀</button>
+      <span id="ft-ilabel">Terminal 1 / ${instances.length}</span>
+      <button id="ft-next">▶</button>
+    </div>
+    <div id="ft-dbb"></div>
+    <div id="ft-dbf">
+      <button id="ft-retrigger">↺ re-trigger</button>
+      <button id="ft-copy">⎘ copy values</button>
+    </div>`;
+
+  if(instances.length<=1){
+    panel.querySelector('#ft-prev').style.visibility='hidden';
+    panel.querySelector('#ft-next').style.visibility='hidden';
+  }
+
+  const body=panel.querySelector('#ft-dbb');
+  const ilabel=panel.querySelector('#ft-ilabel');
+  let currentIdx=0;
+  const inst=()=>instances[currentIdx];
+
+  // Build slider/checkbox rows
+  const inputs={}; // key → {input, val (span or null)}
+  let lastSec=null;
+  SLIDERS.forEach(([key,,label,min,max,step,section,type])=>{
+    if(section!==lastSec){
+      const sec=document.createElement('div');
+      sec.className='ft-sec';
+      sec.textContent=section;
+      body.appendChild(sec);
+      lastSec=section;
+    }
+    const row=document.createElement('div'); row.className='ft-row';
+    const lbl=document.createElement('label'); lbl.title=key; lbl.textContent=label;
+    if(type==='bool'){
+      const inp=document.createElement('input');
+      inp.type='checkbox';
+      inp.checked=!!(inst().getParam(key)??DEFAULTS[key]);
+      inp.style.cssText='width:auto;accent-color:#3dc096;cursor:pointer;';
+      inp.addEventListener('change',()=>inst().setParam(key,inp.checked));
+      const spacer=document.createElement('span');
+      row.appendChild(lbl); row.appendChild(inp); row.appendChild(spacer);
+      body.appendChild(row);
+      inputs[key]={input:inp,val:null};
+    } else {
+      const inp=document.createElement('input');
+      inp.type='range'; inp.min=min; inp.max=max; inp.step=step;
+      inp.value=inst().getParam(key)??DEFAULTS[key]??0;
+      const val=document.createElement('span'); val.className='ftv';
+      val.textContent=fmt(inp.value,step);
+      inp.addEventListener('input',()=>{
+        const v=parseFloat(inp.value);
+        val.textContent=fmt(v,step);
+        inst().setParam(key,v);
+      });
+      row.appendChild(lbl); row.appendChild(inp); row.appendChild(val);
+      body.appendChild(row);
+      inputs[key]={input:inp,val};
+    }
+  });
+
+  function loadInst(idx){
+    currentIdx=idx;
+    ilabel.textContent=`Terminal ${idx+1} / ${instances.length}`;
+    SLIDERS.forEach(([key,,,,,step,,type])=>{
+      if(!inputs[key]) return;
+      if(type==='bool'){
+        inputs[key].input.checked=!!(inst().getParam(key)??DEFAULTS[key]);
+      } else {
+        const v=inst().getParam(key)??DEFAULTS[key]??0;
+        inputs[key].input.value=v;
+        if(inputs[key].val) inputs[key].val.textContent=fmt(v,step);
       }
     });
+    const btn=panel.querySelector('#ft-retrigger');
+    btn.disabled=!inst().hasRipple;
+    btn.title=inst().hasRipple?'':'ripple disabled for this instance';
+  }
 
-    const mesh = new Mesh(gl, { geometry, program });
+  panel.querySelector('#ft-prev').addEventListener('click',()=>
+    loadInst((currentIdx-1+instances.length)%instances.length));
+  panel.querySelector('#ft-next').addEventListener('click',()=>
+    loadInst((currentIdx+1)%instances.length));
 
-    // Pick a renderScale that respects both the max-quality ceiling AND the pixel budget
-    function targetScaleForSize(w, h){
-      const cssPixels = w * h * opts.dpr * opts.dpr;
-      let s = opts.renderScaleMax;
-      if (cssPixels * s * s > opts.maxPixels){
-        s = Math.sqrt(opts.maxPixels / cssPixels);
-      }
-      return clamp(s, opts.renderScaleMin, opts.renderScaleMax);
-    }
+  panel.querySelector('#ft-retrigger').addEventListener('click',()=>inst().retrigger());
 
-    function applySize(){
-      const w = Math.max(1, ctn.offsetWidth);
-      const h = Math.max(1, ctn.offsetHeight);
-      const rw = Math.max(1, Math.floor(w * renderScale));
-      const rh = Math.max(1, Math.floor(h * renderScale));
-      renderer.setSize(rw, rh);
-      gl.canvas.style.width = '100%';
-      gl.canvas.style.height = '100%';
-      program.uniforms.iResolution.value = new Color(gl.canvas.width, gl.canvas.height, gl.canvas.width / gl.canvas.height);
-    }
-
-    function resize(){
-      renderScale = targetScaleForSize(ctn.offsetWidth, ctn.offsetHeight);
-      applySize();
-    }
-    new ResizeObserver(resize).observe(ctn);
-    resize();
-
-    function onMove(e){
-      const r = ctn.getBoundingClientRect();
-      mouse.x = (e.clientX - r.left) / r.width;
-      mouse.y = 1 - (e.clientY - r.top) / r.height;
-    }
-    if (opts.mouseReact) document.addEventListener('mousemove', onMove);
-
-    function autoTune(now){
-      if (!opts.autoTune) return;
-      fpsCount++;
-      if (fpsWindowStart === 0) fpsWindowStart = now;
-      const span = now - fpsWindowStart;
-      if (span >= 1000){
-        const fps = (fpsCount * 1000) / span;
-        fpsCount = 0; fpsWindowStart = now;
-        let changed = false;
-        if (fps < opts.fpsLow && renderScale > opts.renderScaleMin){
-          renderScale = clamp(renderScale - 0.06, opts.renderScaleMin, opts.renderScaleMax);
-          changed = true;
-        } else if (fps > opts.fpsHigh && renderScale < opts.renderScaleMax){
-          renderScale = clamp(renderScale + 0.03, opts.renderScaleMin, opts.renderScaleMax);
-          changed = true;
-        }
-        // never exceed the pixel budget when raising
-        renderScale = Math.min(renderScale, targetScaleForSize(ctn.offsetWidth, ctn.offsetHeight));
-        if (changed) applySize();
-      }
-    }
-
-    function update(t){
-      rafId = requestAnimationFrame(update);
-      if (t - lastFrame < frameInterval) return;
-      lastFrame = t;
-
-      autoTune(t);
-
-      if (!opts.pause) program.uniforms.iTime.value = (t * 0.001 + timeOffset) * opts.timeScale;
-      if (opts.pageLoadAnimation){
-        if (loadStart === 0) loadStart = t;
-        const elapsed = t - loadStart - (opts.pageLoadDelay || 0);
-        program.uniforms.uPageLoadProgress.value = Math.min(Math.max(elapsed, 0) / 2000, 1);
-      }
-      if (opts.mouseReact){
-        smoothMouse.x += (mouse.x - smoothMouse.x) * 0.08;
-        smoothMouse.y += (mouse.y - smoothMouse.y) * 0.08;
-        const mu = program.uniforms.uMouse.value;
-        mu[0] = smoothMouse.x; mu[1] = smoothMouse.y;
-      }
-      renderer.render({ scene: mesh });
-    }
-
-    function start(){
-      if (!running && onScreen && tabVisible){
-        running = true;
-        fpsWindowStart = 0; fpsCount = 0;   // reset FPS sampling on resume
-        rafId = requestAnimationFrame(update);
-      }
-    }
-    function stop(){ if (running){ running = false; cancelAnimationFrame(rafId); } }
-
-    new IntersectionObserver((entries) => {
-      onScreen = entries[0].isIntersecting;
-      onScreen ? start() : stop();
-    }, { threshold: 0 }).observe(ctn);
-
-    document.addEventListener('visibilitychange', () => {
-      tabVisible = !document.hidden;
-      tabVisible ? start() : stop();
+  panel.querySelector('#ft-copy').addEventListener('click',()=>{
+    let out='const TUNING = {\n';
+    let lastSec=null;
+    SLIDERS.forEach(([key,,,,,step,section,type])=>{
+      if(type==='bool') return; // boolean lives in DEFAULTS, not TUNING
+      if(section!==lastSec){ out+=`  // ${section.toLowerCase()}\n`; lastSec=section; }
+      out+=`  ${key}: ${fmt(inst().getParam(key)??DEFAULTS[key],step)},\n`;
     });
+    out+='};';
+    navigator.clipboard.writeText(out).catch(()=>console.log(out));
+    const btn=panel.querySelector('#ft-copy');
+    const orig=btn.textContent;
+    btn.textContent='✓ copied!';
+    setTimeout(()=>btn.textContent=orig,1500);
+  });
 
-    ctn.appendChild(gl.canvas);
-    start();
-  }
+  document.addEventListener('keydown',e=>{ if(e.key==='`') panel.classList.toggle('ft-hidden'); });
+  panel.classList.add('ft-hidden');
+  loadInst(0);
+}
 
-  function boot(){
-    const nodes = document.querySelectorAll('.faulty-terminal');
-    nodes.forEach((ctn) => {
-      // per-element overrides via data-ft-opts='{"tint":"#abc"}' (optional)
-      let overrides = {};
-      const raw = ctn.getAttribute('data-ft-opts');
-      if (raw){ try { overrides = JSON.parse(raw); } catch(e){} }
-      createInstance(ctn, Object.assign({}, DEFAULTS, overrides));
-    });
-  }
+// ─── boot ───────────────────────────────────────────────────────────────────
+function boot(){
+  const instances=[];
+  document.querySelectorAll('.faulty-terminal').forEach(ctn=>{
+    let overrides={};
+    const raw=ctn.getAttribute('data-ft-opts');
+    if(raw){
+      try{
+        let j=raw.trim();
+        if(!j.startsWith('{')) j='{'+j+'}';
+        overrides=JSON.parse(j.replace(/'/g,'"'));
+      }catch(e){}
+    }
+    // data-ft-no-ripple attribute disables ripple for this instance
+    if(ctn.hasAttribute('data-ft-no-ripple')) overrides.ripple=false;
+    if(ctn.dataset.ftRipple==='false') overrides.ripple=false;
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot);
-  } else {
-    boot();
-  }
+    instances.push(createInstance(ctn, Object.assign({},DEFAULTS,overrides)));
+  });
 
+  if(DEFAULTS.debugPanel) buildDebugPanel(instances);
+}
+
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded',boot);
+} else {
+  boot();
+}
 </script>
