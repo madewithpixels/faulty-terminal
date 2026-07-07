@@ -10,24 +10,18 @@ import { Renderer, Program, Mesh, Color, Triangle } from 'https://esm.sh/ogl@1.0
 const TUNING = {
   // ripple
   rippleDuration:          1150,
-  rippleColorFalloff:      4.30,
+  rippleColorFalloff:      2.80,
   rippleColorAmbient:      0.52,
   rippleColorStrength:     1.80,
-  blendMode:               0,     // 0 screen · 1 add · 2 overlay · 3 soft
   rippleBrightness:        0.10,
-  rippleBrightnessFalloff: 0.14,
-  mwpColorStrength:        0.72,
+  rippleBrightnessFalloff: 0.27,
+  mwpColorStrength:        0.69,
   rippleFadeOut:           375,
   // aftershock
-  aftershock:              true,
-  aftershockTriggerAt:     0.15,
-  aftershockDelay:         0,
-  aftershockDuration:      1350,
+  aftershockTriggerAt:     0.82,
+  aftershockDelay:         100,
+  aftershockDuration:      850,
   aftershockStrength:      0.30,
-  // ripple fx
-  rippleWobble:            1.00,
-  rippleWarp:              1.00,
-  impactBurst:             2.00,
   // field
   brightness:              0.50,
   glyphGamma:              1.80,
@@ -40,10 +34,6 @@ const TUNING = {
   timeScale:               1.00,
   digitSize:               1.40,
   tiltStrength:            0.40,
-  // field fx
-  vignette:                0.30,
-  retraceSweep:            1.00,
-  noiseDetail:             0.35,
 };
 // ── structural params (don't touch unless you know what you're doing) ────────
 const DEFAULTS = {
@@ -63,6 +53,7 @@ const DEFAULTS = {
   rippleOriginSelector: null,
   rippleEase: true,
   debugPanel: true,
+  aftershock: true,
   tiltReact: true,
   dpr: 1,
   maxPixels: 1100000,
@@ -80,7 +71,6 @@ const SLIDERS = [
   ['rippleColorFalloff',    'uRippleColorFalloff',      'trail curve',     0.1,  6.0,  0.1,  'RIPPLE'],
   ['rippleColorAmbient',    'uRippleColorAmbient',      'trail strength',  0.0,  1.0,  0.01, 'RIPPLE'],
   ['rippleColorStrength',   'uRippleColorStrength',     'colour strength', 0.0,  2.0,  0.05, 'RIPPLE'],
-  ['blendMode',             'uBlendMode',               'blend mode',      0,    3,    1,    'RIPPLE', 'select'],
   ['rippleBrightness',      'uRippleBrightness',        'glyph boost',     0.0,  4.0,  0.05, 'RIPPLE'],
   ['rippleBrightnessFalloff','uRippleBrightnessFalloff','glow width',      0.01, 1.5,  0.01, 'RIPPLE'],
   ['mwpColorStrength',      'uMwpColorStrength',        'MWP colour',      0.0,  1.0,  0.01, 'RIPPLE'],
@@ -90,9 +80,6 @@ const SLIDERS = [
   ['aftershockDelay',       null,                       'delay (ms)',      0,    2000, 25,   'AFTERSHOCK'],
   ['aftershockDuration',    null,                       'duration (ms)',   100,  3000, 50,   'AFTERSHOCK'],
   ['aftershockStrength',    'uAftershockStrength',      'strength',        0.0,  2.0,  0.05, 'AFTERSHOCK'],
-  ['rippleWobble',          'uRippleWobble',            'wave wobble',     0.0,  1.0,  0.05, 'RIPPLE FX'],
-  ['rippleWarp',            'uRippleWarp',              'shock warp',      0.0,  1.0,  0.05, 'RIPPLE FX'],
-  ['impactBurst',           'uImpactBurst',             'impact burst',    0.0,  2.0,  0.05, 'RIPPLE FX'],
   ['brightness',            'uBrightness',              'brightness',      0.1,  2.0,  0.05, 'FIELD'],
   ['glyphGamma',            'uGlyphGamma',              'glyph gamma',     0.5,  4.0,  0.1,  'FIELD'],
   ['scanlineIntensity',     'uScanlineIntensity',       'scanlines',       0.0,  2.0,  0.05, 'FIELD'],
@@ -104,14 +91,7 @@ const SLIDERS = [
   ['timeScale',             null,                       'time scale',      0.0,  3.0,  0.05, 'FIELD'],
   ['digitSize',             'uDigitSize',               'digit size',      0.5,  2.5,  0.05, 'FIELD'],
   ['tiltStrength',          null,                       'tilt strength',   0.0,  1.5,  0.05, 'FIELD'],
-  ['vignette',              'uVignette',                'vignette',        0.0,  1.0,  0.05, 'FIELD FX'],
-  ['retraceSweep',          'uSweep',                   'retrace sweep',   0.0,  1.0,  0.05, 'FIELD FX'],
-  ['noiseDetail',           'uNoiseDetail',             'noise detail',    0.0,  1.0,  0.05, 'FIELD FX'],
 ];
-// options for 'select'-type sliders, keyed by param key (index = uniform value)
-const SELECT_OPTIONS = {
-  blendMode: ['screen','add','overlay','soft'],
-};
 
 const vertexShader = `
 attribute vec2 position;
@@ -159,32 +139,8 @@ uniform float uAftershockActive;
 uniform float uAftershockProgress;
 uniform float uAftershockStrength;
 uniform float uRippleFade;
-uniform float uRippleWobble;
-uniform float uRippleWarp;
-uniform float uImpactBurst;
-uniform float uVignette;
-uniform float uSweep;
-uniform float uNoiseDetail;
-uniform float uBlendMode;
 float time;
 float hash21(vec2 p){ p = fract(p * 234.56); p += dot(p, p + 34.56); return fract(p.x * p.y); }
-// Angular perturbation of the ring radius — breaks the perfect circle.
-// Shared by the reveal edge, colour ring, aftershock and warp so they stay in sync.
-float ringWobble(vec2 dh){
-  if(uRippleWobble < 0.001) return 1.0;
-  float ang = atan(dh.y, dh.x + 0.0001);
-  return 1.0 + (sin(ang * 5.0 + iTime * 1.7) * 0.6
-              + sin(ang * 9.0 - iTime * 2.3) * 0.4) * uRippleWobble * 0.07;
-}
-// Ripple/aftershock glow blend. Mode 0 is the protected screen formula, verbatim,
-// and the default. All modes stay inside the glyphs: the caller mixes the result
-// back in by glyph luminance, which is 0 on background pixels.
-vec3 blendGlow(vec3 base, vec3 glow){
-  if(uBlendMode < 0.5) return 1.0 - (1.0 - base) * (1.0 - glow);                                    // screen
-  if(uBlendMode < 1.5) return base + glow;                                                          // add
-  if(uBlendMode < 2.5) return mix(2.0*base*glow, 1.0-2.0*(1.0-base)*(1.0-glow), step(vec3(0.5), base)); // overlay
-  return (1.0 - 2.0*glow) * base * base + 2.0 * glow * base;                                        // soft light
-}
 float noise(vec2 p){ return sin(p.x * 10.0) * sin(p.y * (3.0 + sin(time * 0.090909))) + 0.2; }
 mat2 rotate(float angle){ float c = cos(angle); float s = sin(angle); return mat2(c,-s,s,c); }
 
@@ -208,11 +164,6 @@ float fbm(vec2 p){
   p *= 1.1; float f = 0.0; float amp = 0.5 * uNoiseAmp;
   mat2 m0 = rotate(time * 0.02); f += amp * noise(p); p = m0 * p * 2.0; amp *= 0.454545;
   mat2 m1 = rotate(time * 0.02); f += amp * noise(p);
-  // Third octave — finer grain in the intensity field, blended by uNoiseDetail
-  if(uNoiseDetail > 0.001){
-    p = m1 * p * 2.0;
-    f += amp * 0.454545 * uNoiseDetail * noise(p);
-  }
   return f;
 }
 float pattern(vec2 p, out vec2 q, out vec2 r){
@@ -242,7 +193,7 @@ float digit(vec2 p){
     vec2 dh = s_uv - uRippleOrigin;
     dh.x *= iResolution.z;
     float dist = length(dh);
-    float radius = uRippleProgress * 2.5 * ringWobble(dh);
+    float radius = uRippleProgress * 2.5;
     float buildHash = hash21(s * 43.7 + vec2(1.23, 4.56));
     float edge = radius - dist;
     loadFactor = smoothstep(-0.05 - buildHash * 0.35, 0.25, edge);
@@ -288,15 +239,6 @@ vec3 getColor(vec2 p){
   bar *= uScanlineIntensity;
   float disp = displace(p); p.x += disp;
   if (uGlitchAmount != 1.0){ p.x += disp * (uGlitchAmount - 1.0); }
-  // Impact burst — row-tear glitch that fires at ripple trigger and settles fast
-  if (uImpactBurst > 0.001 && uRippleActive > 0.5 && uRippleProgress < 0.3){
-    float k = 1.0 - uRippleProgress * 3.3333;
-    k *= k * uImpactBurst;
-    float row = floor(p.y * 30.0);
-    float jt = floor(iTime * 24.0);
-    float tear = step(0.6, hash21(vec2(jt, row * 0.7)));
-    p.x += (hash21(vec2(row, jt)) - 0.5) * 0.05 * k * tear;
-  }
   float middle = digit(p);
   const float off = 0.002;
   float sum = digit(p + vec2(0.0,-off)) + digit(p + vec2(-off,0.0)) +
@@ -309,26 +251,6 @@ void main(){
   time = iTime * 0.333333;
   vec2 uv = vUv;
   if(uCurvature != 0.0){ uv = barrel(uv); }
-  // Shock warp — refraction band at the wave front physically displaces the glyphs
-  if(uRippleWarp > 0.001){
-    vec2 wdh = uv - uRippleOrigin;
-    wdh.x *= iResolution.z;
-    float wdist = max(length(wdh), 0.0001);
-    float warp = 0.0;
-    if(uRippleActive > 0.5 && uRippleProgress > 0.001){
-      float wedge = uRippleProgress * 2.5 * ringWobble(wdh) - wdist;
-      warp += smoothstep(0.3, 0.0, abs(wedge)) * uRippleFade;
-    }
-    if(uAftershockActive > 0.5 && uAftershockProgress > 0.001){
-      float awedge = uAftershockProgress * 2.5 * ringWobble(wdh) - wdist;
-      warp += smoothstep(0.25, 0.0, abs(awedge)) * 0.6;
-    }
-    if(warp > 0.001){
-      vec2 dir = wdh / wdist;
-      dir.x /= iResolution.z;
-      uv -= dir * warp * uRippleWarp * 0.02;
-    }
-  }
   vec2 p = uv * uScale;
   vec3 col = getColor(p);
   if(uChromaticAberration != 0.0){
@@ -339,14 +261,6 @@ void main(){
   float lum = max(col.r, max(col.g, col.b));
   lum = pow(clamp(lum, 0.0, 1.0), uGlyphGamma);
   float blend = clamp(lum * uBrightness, 0.0, 1.0);
-  // Retrace sweep — slow bright refresh band crawling down the tube (~20s period).
-  // Modulates blend so it only brightens lit glyph dots, never the background.
-  if(uSweep > 0.001){
-    float sp = fract(iTime * 0.05);
-    float sd = uv.y - (1.1 - sp * 1.3);
-    float sband = exp(-sd * sd * 250.0);
-    blend = clamp(blend + blend * sband * uSweep * 0.9, 0.0, 1.0);
-  }
   col = mix(uBgColor, uTint, blend);
 
   // Ripple colour — screen blend on glyph pixels only (no visible disc on background)
@@ -354,7 +268,7 @@ void main(){
     vec2 dh = uv - uRippleOrigin;
     dh.x *= iResolution.z;
     float dist = length(dh);
-    float radius = uRippleProgress * 2.5 * ringWobble(dh);
+    float radius = uRippleProgress * 2.5;
     float edge = radius - dist;
     float isRevealed = smoothstep(0.05, -0.05, dist - radius);
     // Colour at ring front (travels with the ring)
@@ -368,8 +282,8 @@ void main(){
     vec3 flashCol = yFrac > 0.5
       ? mix(uRippleColor1, uRippleColor0, (yFrac - 0.5) * 2.0)
       : mix(uRippleColor2, uRippleColor1, yFrac * 2.0);
-    // Glow blend (default: screen) — lightens glyph dots with brand colour, invisible on dark background
-    vec3 screened = blendGlow(col, flashCol * totalStr);
+    // Screen blend — lightens glyph dots with brand colour, invisible on dark background
+    vec3 screened = 1.0 - (1.0 - col) * (1.0 - flashCol * totalStr);
     col = mix(col, screened, blend);
     col = clamp(col, 0.0, 1.0);
   }
@@ -379,7 +293,7 @@ void main(){
     vec2 adh = uv - uRippleOrigin;
     adh.x *= iResolution.z;
     float adist = length(adh);
-    float aradius = uAftershockProgress * 2.5 * ringWobble(adh);
+    float aradius = uAftershockProgress * 2.5;
     float aedge = aradius - adist;
     float aringStr = step(0.0, aedge) * smoothstep(uRippleBrightnessFalloff, 0.0, aedge);
     float atotalStr = aringStr * uAftershockStrength;
@@ -387,7 +301,7 @@ void main(){
     vec3 aflashCol = yFracA > 0.5
       ? mix(uRippleColor1, uRippleColor0, (yFracA - 0.5) * 2.0)
       : mix(uRippleColor2, uRippleColor1, yFracA * 2.0);
-    vec3 ascreened = blendGlow(col, aflashCol * atotalStr);
+    vec3 ascreened = 1.0 - (1.0 - col) * (1.0 - aflashCol * atotalStr);
     col = mix(col, ascreened, blend);
     col = clamp(col, 0.0, 1.0);
   }
@@ -408,11 +322,6 @@ void main(){
               + vec3(0.95,0.53,0.27)*(1.0-ms-ps)
               + vec3(0.24,0.75,0.59)*ps;
   col = mix(col, mix(uBgColor, mwpCol, blend), sc * cp * uMwpColorStrength);
-  // Vignette — screen-space corner falloff (vUv, so it stays frame-aligned under barrel)
-  if(uVignette > 0.001){
-    vec2 vq = vUv - 0.5;
-    col *= 1.0 - dot(vq, vq) * uVignette * 1.3;
-  }
   if(uDither > 0.0){ col += (hash21(gl_FragCoord.xy) - 0.5) * (uDither * 0.003922); }
   gl_FragColor = vec4(col, 1.0);
 }`;
@@ -507,13 +416,6 @@ function createInstance(ctn, opts){
       uAftershockProgress:      {value:0},
       uAftershockStrength:      {value:opts.aftershockStrength??0.3},
       uRippleFade:              {value:1},
-      uRippleWobble:            {value:opts.rippleWobble??0},
-      uRippleWarp:              {value:opts.rippleWarp??0},
-      uImpactBurst:             {value:opts.impactBurst??0},
-      uVignette:                {value:opts.vignette??0},
-      uSweep:                   {value:opts.retraceSweep??0},
-      uNoiseDetail:             {value:opts.noiseDetail??0},
-      uBlendMode:               {value:opts.blendMode??0},
     }
   });
   const mesh = new Mesh(gl,{geometry,program});
@@ -864,21 +766,6 @@ function buildDebugPanel(instances){
       row.appendChild(lbl); row.appendChild(inp); row.appendChild(spacer);
       body.appendChild(row);
       inputs[key]={input:inp,val:null};
-    } else if(type==='select'){
-      const sel=document.createElement('select');
-      sel.style.cssText='width:100%;background:rgba(255,255,255,0.07);color:#ddd;'+
-        'border:1px solid #2a3a40;border-radius:4px;font:11px monospace;padding:2px;cursor:pointer;';
-      (SELECT_OPTIONS[key]||[]).forEach((name,idx)=>{
-        const o=document.createElement('option');
-        o.value=idx; o.textContent=name;
-        sel.appendChild(o);
-      });
-      sel.value=Math.round(inst().getParam(key)??DEFAULTS[key]??0);
-      sel.addEventListener('change',()=>inst().setParam(key,parseFloat(sel.value)));
-      const spacer=document.createElement('span');
-      row.appendChild(lbl); row.appendChild(sel); row.appendChild(spacer);
-      body.appendChild(row);
-      inputs[key]={input:sel,val:null};
     } else {
       const inp=document.createElement('input');
       inp.type='range'; inp.min=min; inp.max=max; inp.step=step;
@@ -903,8 +790,6 @@ function buildDebugPanel(instances){
       if(!inputs[key]) return;
       if(type==='bool'){
         inputs[key].input.checked=!!(inst().getParam(key)??DEFAULTS[key]);
-      } else if(type==='select'){
-        inputs[key].input.value=Math.round(inst().getParam(key)??DEFAULTS[key]??0);
       } else {
         const v=inst().getParam(key)??DEFAULTS[key]??0;
         inputs[key].input.value=v;
@@ -927,11 +812,9 @@ function buildDebugPanel(instances){
     let out='const TUNING = {\n';
     let lastSec=null;
     SLIDERS.forEach(([key,,,,,step,section,type])=>{
+      if(type==='bool') return; // boolean lives in DEFAULTS, not TUNING
       if(section!==lastSec){ out+=`  // ${section.toLowerCase()}\n`; lastSec=section; }
-      const v=inst().getParam(key)??DEFAULTS[key];
-      out+=type==='bool'
-        ? `  ${key}: ${!!v},\n`
-        : `  ${key}: ${fmt(v,step)},\n`;
+      out+=`  ${key}: ${fmt(inst().getParam(key)??DEFAULTS[key],step)},\n`;
     });
     out+='};';
     navigator.clipboard.writeText(out).catch(()=>console.log(out));

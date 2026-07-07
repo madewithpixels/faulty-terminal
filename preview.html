@@ -1,3 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>faulty-terminal — FX preview</title>
+<style>
+  :root { --raspberry:#E84F5C; --coral:#F28745; --teal:#3DC096; --slate:#2b464e; }
+  html, body { margin:0; height:100%; background:#1a2b30; }
+  .faulty-terminal { position:fixed; inset:0; }
+  #heart {
+    position:fixed; left:50%; top:42%; width:72px; height:72px;
+    transform:translate(-50%,-50%); z-index:5; pointer-events:none;
+    background:
+      radial-gradient(circle at 35% 35%, var(--raspberry), transparent 60%),
+      radial-gradient(circle at 65% 35%, var(--coral), transparent 60%),
+      radial-gradient(circle at 50% 65%, var(--teal), transparent 60%);
+    filter:blur(2px); opacity:0.85; border-radius:16px;
+  }
+  #hint {
+    position:fixed; left:16px; bottom:14px; z-index:10;
+    font:11px/1.6 monospace; color:#7ab; background:rgba(8,12,16,.8);
+    padding:8px 12px; border:1px solid #2a3a40; border-radius:6px;
+  }
+</style>
+</head>
+<body>
+<div class="faulty-terminal" data-ft-opts="{'rippleOriginSelector': '#heart'}"></div>
+<div id="heart"></div>
+<div id="hint">` toggles panel &nbsp;·&nbsp; ↺ re-trigger replays the ripple &nbsp;·&nbsp; RIPPLE FX + FIELD FX sliders (0 = off) &nbsp;·&nbsp; blend mode under RIPPLE</div>
+<script>
+  addEventListener('load', () => {
+    setTimeout(() => document.querySelector('.faulty-terminal').classList.add('does-ripple'), 900);
+    setTimeout(() => document.getElementById('ft-debug')?.classList.remove('ft-hidden'), 1200);
+  });
+</script>
 <style>
   .faulty-terminal { overflow: hidden; }
   .faulty-terminal canvas { display: block; width: 100%; height: 100%; }
@@ -975,3 +1011,5 @@ if(document.readyState==='loading'){
   boot();
 }
 </script>
+</body>
+</html>
