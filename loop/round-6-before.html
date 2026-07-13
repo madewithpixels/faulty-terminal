@@ -3,13 +3,13 @@
   .faulty-terminal canvas { display: block; width: 100%; height: 100%; }
 </style>
 <script type="module">
-import { Renderer, Program, Mesh, Color, Triangle, RenderTarget } from 'https://esm.sh/ogl@1.0.11';
+import { Renderer, Program, Mesh, Color, Triangle } from 'https://esm.sh/ogl@1.0.11';
 // TUNING — paste exporter copy-output here
 const TUNING = {
   // ripple
   rippleDuration: 1150,
   rippleColorFalloff: 4.30,
-  rippleColorAmbient: 0.34,
+  rippleColorAmbient: 0.52,
   rippleColorStrength: 1.80,
   blendMode: 0, // 0 screen · 1 add · 2 overlay · 3 soft
   rippleBrightness: 0.10,
@@ -17,7 +17,7 @@ const TUNING = {
   rippleFadeOut: 375,
   // aftershock
   aftershock: true,
-  aftershockTriggerAt: 0.05,
+  aftershockTriggerAt: 0.15,
   aftershockDelay: 0,
   aftershockDuration: 1350,
   aftershockStrength: 0.30,
@@ -26,16 +26,13 @@ const TUNING = {
   rippleWarp: 1.00,
   impactBurst: 2.00,
   // mwp
-  mwpColorStrength: 0.78,
-  mwpDensity: 0.18,
-  mwpFlickerSpeed: 0.30,
-  mwpWaveDuration: 1050,
-  mwpWaveAt: 0.05,
-  heartStrength: 2.00,
-  heartScale: 1.50,
-  heartFalloff: 0.45,
-  mwpLegible: 0.22,
-  mwpGlitch: 0.50,
+  mwpColorStrength: 0.72,
+  mwpDensity: 0.15,
+  mwpFlickerSpeed: 1.00,
+  mwpWaveDuration: 1600,
+  heartStrength: 1.20,
+  heartScale: 1.00,
+  heartFalloff: 0.80,
   // field
   brightness: 0.50,
   glyphGamma: 1.80,
@@ -52,8 +49,6 @@ const TUNING = {
   vignette: 0.30,
   retraceSweep: 1.00,
   noiseDetail: 0.35,
-  phosphorOn: true,
-  phosphor: 250,
 };
 // structural params (don't touch unless you know what you're doing)
 const DEFAULTS = {
@@ -103,12 +98,9 @@ const SLIDERS = [
   ['mwpDensity', 'uMwpDensity', 'density', 0.0, 0.6, 0.01, 'MWP'],
   ['mwpFlickerSpeed', 'uMwpFlicker', 'timing', 0.0, 4.0, 0.05, 'MWP'],
   ['mwpWaveDuration', null, 'wave (ms)', 400, 4000, 50, 'MWP'],
-  ['mwpWaveAt', null, 'wave at', 0.0, 1.0, 0.05, 'MWP'],
   ['heartStrength', 'uHeartStrength', 'heart glow', 0.0, 2.0, 0.05, 'MWP'],
   ['heartScale', 'uHeartScale', 'heart size', 0.5, 4.0, 0.25, 'MWP'],
   ['heartFalloff', 'uHeartFalloff', 'heart falloff', 0.0, 2.0, 0.05, 'MWP'],
-  ['mwpLegible', 'uMwpLegible', 'legible time', 0.0, 1.0, 0.01, 'MWP'],
-  ['mwpGlitch', 'uMwpGlitch', 'decode glitch', 0.0, 1.0, 0.05, 'MWP'],
   ['brightness', 'uBrightness', 'brightness', 0.1, 2.0, 0.05, 'FIELD'],
   ['glyphGamma', 'uGlyphGamma', 'glyph gamma', 0.5, 4.0, 0.1, 'FIELD'],
   ['scanlineIntensity', 'uScanlineIntensity', 'scanlines', 0.0, 2.0, 0.05, 'FIELD'],
@@ -123,8 +115,6 @@ const SLIDERS = [
   ['vignette', 'uVignette', 'vignette', 0.0, 1.0, 0.05, 'FIELD FX'],
   ['retraceSweep', 'uSweep', 'retrace sweep', 0.0, 1.0, 0.05, 'FIELD FX'],
   ['noiseDetail', 'uNoiseDetail', 'noise detail', 0.0, 1.0, 0.05, 'FIELD FX'],
-  ['phosphorOn', null, 'phosphor', null, null, null, 'FIELD FX', 'bool'],
-  ['phosphor', null, 'phosphor (ms)', 0, 600, 10, 'FIELD FX'],
 ];
 const SELECT_OPTIONS = {
   blendMode: ['screen','add','overlay','soft'],
@@ -188,8 +178,6 @@ uniform float uMwpWaveEnv;
 uniform float uHeartStrength;
 uniform float uHeartScale;
 uniform float uHeartFalloff;
-uniform float uMwpLegible;
-uniform float uMwpGlitch;
 float time;
 float hash21(vec2 p){ p = fract(p * 234.56); p += dot(p, p + 34.56); return fract(p.x * p.y); }
 float ringWobble(vec2 dh){
@@ -220,41 +208,6 @@ float pBit = clamp((r0+r2)*any_col + r1*outer + (r3+r4)*c0, 0.0, 1.0);
 float mSel = step(charIdx, 0.49);
 float pSel = step(1.51, charIdx);
 return mBit*mSel + wBit*(1.0-mSel-pSel) + pBit*pSel;
-}
-// second, more angular M/W/P set — row masks, col0 = leftmost = LSB, rows 0..4 top→bottom
-float getCharBit2(float charIdx, float row, float col){
-float r = row;
-float mM = r<0.5?6.0 : r<1.5?15.0 : r<2.5?11.0 : r<3.5?11.0 : r<4.5?10.0 : 0.0;
-float mW = r<0.5?20.0 : r<1.5?21.0 : r<2.5?21.0 : r<3.5?5.0  : r<4.5?6.0  : 0.0;
-float mP = r<0.5?6.0 : r<1.5?13.0 : r<2.5?13.0 : r<3.5?13.0 : r<4.5?7.0  : 0.0;
-float mSel = step(charIdx, 0.49);
-float pSel = step(1.51, charIdx);
-float m = mM*mSel + mW*(1.0-mSel-pSel) + mP*pSel;
-float bit = mod(floor(m / exp2(col) + 0.01), 2.0);
-float inRange = step(-0.5, row) * step(row, 4.5) * step(-0.5, col) * step(col, 4.5);
-return bit * inRange;
-}
-// scramble most of the time, glitchily resolve into a letter that flips between the two sets
-float mwpDecodedBit(float ci, float row, float col, vec2 s, float ch, float stampW){
-float base = getCharBit(ci, row, col);
-float alt  = getCharBit2(ci, row, col);
-float spd = max(uMwpFlicker, 0.0001);
-// slow per-cell legibility envelope — cell is coded unless env falls inside the legible window
-float env = fract(iTime * spd * (0.55 + ch * 0.8) + ch * 7.3);
-float legible = step(env, uMwpLegible);
-// fast glitch clock drives the scramble and the letterform flips
-float g = floor(iTime * spd * (8.0 + ch * 8.0) + ch * 23.0);
-// coded state: random dot pattern within the cell
-float scr = step(0.5, hash21(vec2(col * 3.1 + 1.7, row * 2.7 + 2.3) + s * 0.7 + vec2(g * 0.19, g * 0.07)));
-// which letterform this instant — glitchy flip between the angular and rounded sets
-float vSel = step(0.5, hash21(s + vec2(g * 0.29, 5.7)));
-float letter = mix(base, alt, vSel);
-// even while legible, some frames snap back toward scramble for a glitchy resolve
-float glitchFrame = step(1.0 - uMwpGlitch * 0.5, hash21(s + vec2(g * 0.41, 9.2)));
-float shown = mix(letter, scr, glitchFrame);
-float outp = mix(scr, shown, legible);
-// heart-wave cells force the clean rounded letterform so the heart reads
-return mix(outp, base, clamp(stampW * 1.5, 0.0, 1.0));
 }
 float mwpGate(vec2 s, float h){
 if(uMwpReveal >= 0.999) return 1.0;
@@ -366,7 +319,7 @@ stampW = heartStamp(s).w;
 showChar = clamp(showChar + step(0.05, stampW), 0.0, 1.0);
 }
 float charIdx = clamp(floor(hash21(s * 3.7 + vec2(timeStep * 0.11, 1.23)) * 3.0), 0.0, 2.0);
-float charPixel = mwpDecodedBit(charIdx, i + 2.0, j + 2.0, s, cellHash, stampW);
+float charPixel = getCharBit(charIdx, i + 2.0, j + 2.0);
 intensity += showChar * (charPixel * (0.7 + stampW * 0.8) - 0.2) * loadFactor;
 float n = i * i + j * j; float f = n * 0.0625;
 float isOn = step(0.1, intensity - f);
@@ -488,7 +441,7 @@ vec4 stamp = vec4(0.0);
 if(uMwpWaveEnv > 0.001) stamp = heartStamp(s_c);
 float scEff = clamp(sc + step(0.05, stamp.w), 0.0, 1.0);
 float ci = clamp(floor(hash21(s_c * 3.7 + vec2(ts * 0.11, 1.23)) * 3.0), 0.0, 2.0);
-float cp = mwpDecodedBit(ci, ic + 2.0, jc + 2.0, s_c, ch, stamp.w);
+float cp = getCharBit(ci, ic + 2.0, jc + 2.0);
 float ms = step(ci, 0.49); float ps = step(1.51, ci);
 vec3 mwpCol = vec3(0.91,0.31,0.36)*ms
 + vec3(0.95,0.53,0.27)*(1.0-ms-ps)
@@ -541,8 +494,7 @@ function createInstance(ctn, opts){
   let aftershockTriggered=false, aftershockStartTime=-1, aftershockDurationRef=opts.aftershockDuration||700;
   let aftershockDelayRef=opts.aftershockDelay||0, aftershockTriggerAtRef=opts.aftershockTriggerAt??0.82;
   let rippleFadeStartTime=-1, rippleFadeOutRef=opts.rippleFadeOut??280;
-  let mwpWaveStartTime=-1, mwpWaveDurationRef=opts.mwpWaveDuration??1600, mwpWaveAtRef=opts.mwpWaveAt??0.25;
-  let phosphorOnRef=opts.phosphorOn!==false, phosphorRef=opts.phosphor??0, rtScene=null, rtA=null, rtB=null, fbProg=null, fbMesh=null, cpProg=null, cpMesh=null, prevT=0;
+  let mwpWaveStartTime=-1, mwpWaveDurationRef=opts.mwpWaveDuration??1600;
   let tiltX=0, tiltY=0, tiltTargetX=0, tiltTargetY=0, tiltStrengthRef=opts.tiltStrength??0.4;
   let gyroActive=false;
   let renderScale = opts.renderScaleMax;
@@ -603,8 +555,6 @@ function createInstance(ctn, opts){
       uHeartStrength:{value:opts.heartStrength??1.2},
       uHeartScale:{value:opts.heartScale??1},
       uHeartFalloff:{value:opts.heartFalloff??0.8},
-      uMwpLegible:{value:opts.mwpLegible??0.22},
-      uMwpGlitch:{value:opts.mwpGlitch??0.5},
     }
   });
   const mesh = new Mesh(gl,{geometry,program});
@@ -614,26 +564,11 @@ function createInstance(ctn, opts){
     if(px*s*s > opts.maxPixels) s = Math.sqrt(opts.maxPixels/px);
     return clamp(s,opts.renderScaleMin,opts.renderScaleMax);
   }
-  function makeRTs(){
-    const o={width:gl.canvas.width,height:gl.canvas.height,depth:false};
-    rtScene=new RenderTarget(gl,o); rtA=new RenderTarget(gl,o); rtB=new RenderTarget(gl,o);
-  }
-  function ensurePhosphor(){
-    if(fbProg) return;
-    fbProg=new Program(gl,{vertex:vertexShader,fragment:'precision mediump float;varying vec2 vUv;uniform sampler2D tS;uniform sampler2D tP;uniform float uDk;void main(){gl_FragColor=vec4(max(texture2D(tS,vUv).rgb,texture2D(tP,vUv).rgb*uDk),1.0);}',
-      uniforms:{tS:{value:null},tP:{value:null},uDk:{value:0}}});
-    fbMesh=new Mesh(gl,{geometry,program:fbProg});
-    cpProg=new Program(gl,{vertex:vertexShader,fragment:'precision mediump float;varying vec2 vUv;uniform sampler2D tM;void main(){gl_FragColor=texture2D(tM,vUv);}',
-      uniforms:{tM:{value:null}}});
-    cpMesh=new Mesh(gl,{geometry,program:cpProg});
-    makeRTs();
-  }
   function applySize(){
     const w=Math.max(1,ctn.offsetWidth), h=Math.max(1,ctn.offsetHeight);
     renderer.setSize(Math.max(1,Math.floor(w*renderScale)),Math.max(1,Math.floor(h*renderScale)));
     gl.canvas.style.width='100%'; gl.canvas.style.height='100%';
     program.uniforms.iResolution.value = new Color(gl.canvas.width,gl.canvas.height,gl.canvas.width/gl.canvas.height);
-    if(fbProg) makeRTs();
   }
   function resize(){ renderScale=targetScaleForSize(ctn.offsetWidth,ctn.offsetHeight); applySize(); }
   new ResizeObserver(resize).observe(ctn);
@@ -735,10 +670,10 @@ function createInstance(ctn, opts){
         aftershockTriggered=true;
         aftershockStartTime=t+aftershockDelayRef;
       }
-      if(!opts.aftershock && mwpWaveStartTime<0 && rp>=mwpWaveAtRef) mwpWaveStartTime=t;
       if(rp>=1.0 && rippleFadeStartTime<0){
         rippleFadeStartTime=t;
         program.uniforms.uPageLoadProgress.value=1;
+        if(!opts.aftershock && mwpWaveStartTime<0) mwpWaveStartTime=t;
       }
       if(rippleFadeStartTime>=0){
         const fadeElapsed=t-rippleFadeStartTime;
@@ -756,9 +691,10 @@ function createInstance(ctn, opts){
         const rawAp=Math.min(elapsed/aftershockDurationRef,1.0);
         const ap=rawAp<0.5?2*rawAp*rawAp:1-Math.pow(-2*rawAp+2,2)/2;
         program.uniforms.uAftershockProgress.value=ap;
-        if(mwpWaveStartTime<0 && ap>=mwpWaveAtRef) mwpWaveStartTime=t;
-        if(ap>=1.0 && program.uniforms.uAftershockActive.value>0.5)
+        if(ap>=1.0 && program.uniforms.uAftershockActive.value>0.5){
           program.uniforms.uAftershockActive.value=0;
+          if(mwpWaveStartTime<0) mwpWaveStartTime=t;
+        }
       }
     }
     if(opts.ripple && mwpWaveStartTime>=0 && program.uniforms.uMwpReveal.value<1){
@@ -788,20 +724,7 @@ function createInstance(ctn, opts){
       tiltY+=(tiltTargetY-tiltY)*0.05;
       gl.canvas.style.transform=`perspective(600px) rotateX(${tiltX.toFixed(2)}deg) rotateY(${tiltY.toFixed(2)}deg) scale(1.06)`;
     }
-    if(phosphorOnRef && phosphorRef>0.5){
-      ensurePhosphor();
-      renderer.render({scene:mesh,target:rtScene});
-      fbProg.uniforms.tS.value=rtScene.texture;
-      fbProg.uniforms.tP.value=rtB.texture;
-      fbProg.uniforms.uDk.value=Math.exp(-Math.max(t-prevT,1)/phosphorRef);
-      renderer.render({scene:fbMesh,target:rtA});
-      cpProg.uniforms.tM.value=rtA.texture;
-      renderer.render({scene:cpMesh});
-      const sw=rtA; rtA=rtB; rtB=sw;
-    } else {
-      renderer.render({scene:mesh});
-    }
-    prevT=t;
+    renderer.render({scene:mesh});
   }
   function start(){
     if(!running && onScreen && tabVisible){
@@ -829,9 +752,6 @@ function createInstance(ctn, opts){
     if(key==='rippleDuration') rippleDurationRef=val;
     if(key==='rippleFadeOut') rippleFadeOutRef=val;
     if(key==='mwpWaveDuration') mwpWaveDurationRef=val;
-    if(key==='mwpWaveAt') mwpWaveAtRef=val;
-    if(key==='phosphor') phosphorRef=val;
-    if(key==='phosphorOn') phosphorOnRef=!!val;
     if(key==='aftershockDelay') aftershockDelayRef=val;
     if(key==='aftershockDuration') aftershockDurationRef=val;
     if(key==='aftershockTriggerAt') aftershockTriggerAtRef=val;
@@ -846,9 +766,6 @@ function createInstance(ctn, opts){
     if(key==='rippleDuration') return rippleDurationRef;
     if(key==='rippleFadeOut') return rippleFadeOutRef;
     if(key==='mwpWaveDuration') return mwpWaveDurationRef;
-    if(key==='mwpWaveAt') return mwpWaveAtRef;
-    if(key==='phosphor') return phosphorRef;
-    if(key==='phosphorOn') return phosphorOnRef;
     if(key==='aftershockDelay') return aftershockDelayRef;
     if(key==='aftershockDuration') return aftershockDurationRef;
     if(key==='aftershockTriggerAt') return aftershockTriggerAtRef;
