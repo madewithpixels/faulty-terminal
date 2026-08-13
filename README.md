@@ -28,8 +28,8 @@ initialised automatically; the base CSS is injected by the script.
 
 | URL form | Behaviour |
 |----------|-----------|
-| `@1` | latest 1.x — picks up fixes, never breaking changes **(recommended)** |
-| `@1.2.0` | frozen to one build |
+| `@1.5.0` | frozen to one build **(recommended)** |
+| `@1` | latest 1.x — but jsDelivr caches range resolution for up to 12h, so it lags behind a fresh tag |
 | `@main` | tip of the branch — 12h cache, **don't use in production** |
 
 Webflow specifics — component setup, properties, interactions — are in

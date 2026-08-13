@@ -1008,14 +1008,23 @@ transition:background .15s;}
   const inst=()=>instances[currentIdx];
   // Name each instance after where it sits, so "which one am I dragging?" has
   // an answer that survives more than one terminal on a page.
+  // Layout/utility class names say nothing about *which* terminal this is.
+  const UTILITY=/^(w-|wf-|-{0,2}is-|does-|ft-|--)/;
+  function usefulClass(el){
+    if(!el||!el.className||typeof el.className!=='string') return null;
+    return el.className.trim().split(/\s+/).filter(n=>n&&!UTILITY.test(n))[0]||null;
+  }
   function instName(i){
     const c=instances[i].ctn;
+    const sec=c.closest&&c.closest('section,header,footer,main');
     const named=c.id
       || (c.parentElement&&c.parentElement.id)
-      || (c.parentElement&&(c.parentElement.className||'').trim().split(/\s+/)
-          .filter(n=>n&&!/^w-|^--?is-/.test(n))[0])
-      || (c.closest&&c.closest('section[class]')&&c.closest('section[class]').className.trim().split(/\s+/)[0]);
-    return named ? String(named).slice(0,18) : `terminal ${i+1}`;
+      || (sec&&sec.id)
+      || usefulClass(c.parentElement)
+      || usefulClass(sec);
+    if(!named) return `terminal ${i+1}`;
+    const n=String(named);
+    return n.length>22 ? n.slice(0,21)+'…' : n;
   }
   // Outline whichever instance the panel is driving.
   const marker=document.createElement('style');
