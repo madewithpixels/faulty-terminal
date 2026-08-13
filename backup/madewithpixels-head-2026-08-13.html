@@ -1,19 +1,129 @@
-import { Renderer, Program, Mesh, Color, Triangle, RenderTarget } from 'ogl';
-import css from './faulty-terminal.css';
+<style>
+  /* GSAP Split-Line Clipping Fix */
+  .gsap_split_line-mask {
+    padding-bottom: var(--_structure---split-line-distance);
+    margin-bottom: calc(var(--_structure---split-line-distance) * -1);
+  }
 
-// ---------------------------------------------------------------------------
-// TUNING — baked-in art direction. Paste the debug panel's copy-values output
-// here, then rebuild + retag to ship new defaults to every site at once.
-// Sites can override any of these at runtime without a rebuild via
-// window.FaultyTerminalConfig or a per-element data-ft-opts attribute.
-// ---------------------------------------------------------------------------
+  .folio-list li {
+    margin-block: 0;
+  }
+  .hero,
+  .content-main > * {
+    transition: filter 0.4s ease;
+  }
+
+  .hero,
+  .seperator,
+  .intro,
+  .about,
+  .portfolio {
+    transition: filter 0.4s ease;
+  }
+
+  .--is-blurred {
+    filter: blur(4px) brightness(0.5);
+    pointer-events: none;
+  }
+
+  .ticker__row--right .ticker__track {
+    animation-name: ticker-right;
+  }
+  @keyframes ticker-left {
+    from {
+      transform: translateX(0);
+    }
+
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  @keyframes ticker-right {
+    from {
+      transform: translateX(-50%);
+    }
+
+    to {
+      transform: translateX(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ticker__track {
+      animation: none;
+    }
+  }
+
+  @property --angle {
+    syntax: '<angle>';
+    initial-value: 0deg;
+    inherits: false;
+  }
+
+  .button,
+  .instant-quote-btn {
+    padding: 1px; /* border thickness */
+    background: conic-gradient(from var(--angle), var(--raspberry) 0deg 120deg, var(--coral) 120deg 240deg, var(--teal) 240deg 360deg, var(--raspberry));
+  }
+
+  .button:hover,
+  .instant-quote-btn:hover {
+    animation: spin-border 2s ease-in-out infinite;
+  }
+
+  @media (hover: none) and (pointer: coarse) {
+    .button,
+    .instant-quote-btn {
+      animation: spin-border 2s ease-in-out infinite;
+    }
+  }
+
+  @keyframes spin-border {
+    to {
+      --angle: 360deg;
+    }
+  }
+
+  /* Fauly Terminal */
+  .faulty-terminal {
+    overflow: hidden;
+  }
+
+  .faulty-terminal canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .folio-list-link {
+    background-repeat: no-repeat;
+    background-position: bottom;
+    background-size: 100% 1px;
+  }
+
+  ::view-transition-old(lb-title),
+  ::view-transition-new(lb-title) {
+    animation-duration: 0.35s;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .iwa-panel .mwp-result-panel {
+    box-shadow: none;
+    border-radius: none;
+    border: none;
+    padding: none !important;
+  }
+</style>
+<script type="module">
+import { Renderer, Program, Mesh, Color, Triangle, RenderTarget } from 'https://esm.sh/ogl@1.0.11';
+// TUNING — paste exporter copy-output here
 const TUNING = {
   // ripple
   rippleDuration: 1150,
   rippleColorFalloff: 4.30,
   rippleColorAmbient: 0.34,
   rippleColorStrength: 1.80,
-  blendMode: 0, // 0 screen · 1 add · 2 overlay · 3 soft
+  blendMode: 0,
   rippleBrightness: 0.10,
   rippleBrightnessFalloff: 0.14,
   rippleFadeOut: 375,
@@ -74,7 +184,7 @@ const DEFAULTS = {
   ripple: true,
   rippleOriginSelector: null,
   rippleEase: true,
-  debugPanel: false,
+  debugPanel: true,
   tiltReact: true,
   dpr: 1,
   maxPixels: 1100000,
@@ -1048,129 +1158,27 @@ transition:background .15s;}
   panel.classList.add('ft-hidden');
   loadInst(0);
 }
-// ---------------------------------------------------------------------------
-// Public API + boot
-// ---------------------------------------------------------------------------
-const VERSION = __FT_VERSION__;
-const INITED = '__ftInited';
-let styleInjected = false;
-function injectStyle(){
-  if(styleInjected || document.getElementById('ft-base-style')) { styleInjected = true; return; }
-  const el = document.createElement('style');
-  el.id = 'ft-base-style';
-  el.textContent = css;
-  document.head.appendChild(el);
-  styleInjected = true;
-}
-// dataset keys that are not option names
-const RESERVED_ATTRS = { ftOpts: 1, ftNoRipple: 1, ftDebug: 1 };
-// friendlier aliases -> real option key
-const ATTR_ALIASES = { ftBg: 'bgColor', ftOrigin: 'rippleOriginSelector' };
-// data-ft-ripple-duration -> ftRippleDuration -> rippleDuration
-function attrKeyToOption(dataKey){
-  if(ATTR_ALIASES[dataKey]) return ATTR_ALIASES[dataKey];
-  const k = dataKey.slice(2); // strip the "ft" prefix
-  return k.charAt(0).toLowerCase() + k.slice(1);
-}
-function coerceAttrValue(raw, key){
-  const v = String(raw).trim();
-  if(v === 'true') return true;
-  if(v === 'false') return false;
-  if(v === 'null') return null;
-  // only coerce to number when the default for this key is numeric, so colour
-  // strings and selectors are never mangled
-  if(typeof DEFAULTS[key] === 'number' && v !== '' && !isNaN(Number(v))) return Number(v);
-  return v;
-}
-function parseAttrOpts(ctn){
-  let overrides = {};
-  const raw = ctn.getAttribute('data-ft-opts');
-  if(raw && raw.trim()){
-    try{
-      let j = raw.trim();
-      if(!j.startsWith('{')) j = '{' + j + '}';
-      overrides = JSON.parse(j.replace(/'/g, '"'));
-    }catch(e){
-      console.warn('[faulty-terminal] could not parse data-ft-opts:', raw, e);
+function boot(){
+  const instances=[];
+  document.querySelectorAll('.faulty-terminal').forEach(ctn=>{
+    let overrides={};
+    const raw=ctn.getAttribute('data-ft-opts');
+    if(raw){
+      try{
+        let j=raw.trim();
+        if(!j.startsWith('{')) j='{'+j+'}';
+        overrides=JSON.parse(j.replace(/'/g,'"'));
+      }catch(e){}
     }
-  }
-  // Any other data-ft-* attribute maps straight onto an option, so every
-  // TUNING key can be exposed as a Webflow component property. Empty values
-  // are ignored — an unfilled component property renders as an empty string
-  // and must not clobber the default.
-  Object.keys(ctn.dataset).forEach(dataKey => {
-    if(dataKey.slice(0, 2) !== 'ft' || RESERVED_ATTRS[dataKey]) return;
-    const raw = ctn.dataset[dataKey];
-    if(raw == null || String(raw).trim() === '') return;
-    const key = attrKeyToOption(dataKey);
-    if(!(key in DEFAULTS)){
-      console.warn('[faulty-terminal] unknown option from data-' +
-        dataKey.replace(/[A-Z]/g, c => '-' + c.toLowerCase()) + ':', key);
-      return;
-    }
-    overrides[key] = coerceAttrValue(raw, key);
+    if(ctn.hasAttribute('data-ft-no-ripple')) overrides.ripple=false;
+    if(ctn.dataset.ftRipple==='false') overrides.ripple=false;
+    instances.push(createInstance(ctn, Object.assign({},DEFAULTS,overrides)));
   });
-  if(ctn.hasAttribute('data-ft-no-ripple')) overrides.ripple = false;
-  return overrides;
+  if(DEFAULTS.debugPanel) buildDebugPanel(instances);
 }
-function siteConfig(){
-  const cfg = (typeof window !== 'undefined' && window.FaultyTerminalConfig) || {};
-  return (cfg && typeof cfg === 'object') ? cfg : {};
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded',boot);
+} else {
+  boot();
 }
-function debugRequested(){
-  if(siteConfig().debugPanel === true) return true;
-  if(typeof location !== 'undefined' && /[?&]ft-debug\b/.test(location.search)) return true;
-  return !!document.querySelector('[data-ft-debug]');
-}
-const instances = [];
-let panelBuilt = false;
-/**
- * Initialise every uninitialised .faulty-terminal element inside `root`.
- * Safe to call repeatedly — already-running elements are skipped, so it can be
- * called after injecting markup (CMS load, tab switch, Webflow interaction).
- */
-function init(root){
-  injectStyle();
-  const scope = root || document;
-  const found = scope.querySelectorAll ? scope.querySelectorAll('.faulty-terminal') : [];
-  const fresh = [];
-  found.forEach(ctn => {
-    if(ctn[INITED]) return;
-    ctn[INITED] = true;
-    const opts = Object.assign({}, DEFAULTS, siteConfig(), parseAttrOpts(ctn));
-    try{
-      const inst = createInstance(ctn, opts);
-      instances.push(inst);
-      fresh.push(inst);
-    }catch(e){
-      ctn[INITED] = false;
-      console.error('[faulty-terminal] init failed for', ctn, e);
-    }
-  });
-  if(!panelBuilt && instances.length && debugRequested()){
-    panelBuilt = true;
-    buildDebugPanel(instances);
-  }
-  return fresh;
-}
-/** Replay the ripple reveal. Pass an element, an index, or nothing for all. */
-function retrigger(target){
-  if(target === undefined || target === null){ instances.forEach(i => i.retrigger()); return; }
-  if(typeof target === 'number'){ instances[target] && instances[target].retrigger(); return; }
-  const el = typeof target === 'string' ? document.querySelector(target) : target;
-  instances.filter(i => i.ctn === el).forEach(i => i.retrigger());
-}
-const API = { version: VERSION, init, retrigger, instances, defaults: DEFAULTS, tuning: TUNING };
-if(typeof window !== 'undefined'){
-  window.FaultyTerminal = Object.assign(window.FaultyTerminal || {}, API);
-}
-function boot(){ init(document); }
-if(typeof document !== 'undefined'){
-  if(document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', boot);
-  } else {
-    boot();
-  }
-}
-export default API;
-export { init, retrigger, instances, VERSION as version };
+</script>

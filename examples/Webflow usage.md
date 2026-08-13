@@ -36,23 +36,40 @@ In the Designer:
 
 Now drop the component into any section on any page. The script finds it.
 
-### Component properties (optional)
+### Component properties — per-instance configuration
 
-Webflow can expose per-instance settings on a component. Add these as
-**custom attributes** on the root div, then promote each attribute value to a
-component property:
+**Any** option can be a component property. On the root div, add a custom
+attribute named `data-ft-<option>` (kebab-case), then click the property icon
+next to its *value* field and promote it to a component property.
 
-| Attribute | Property name | Example value |
-|-----------|---------------|---------------|
+| Attribute | Suggested property name | Example |
+|-----------|------------------------|---------|
 | `data-ft-tint` | Tint | `#ff6b6b` |
 | `data-ft-bg` | Background | `#2b464e` |
-| `data-ft-ripple` | Ripple | `true` / `false` |
+| `data-ft-brightness` | Brightness | `0.7` |
+| `data-ft-ripple` | Ripple on | `true` / `false` |
 | `data-ft-origin` | Ripple origin | `#hero-logo` |
-| `data-ft-opts` | Advanced (JSON) | `{'curvature':0.1,'brightness':0.7}` |
+| `data-ft-ripple-duration` | Ripple speed (ms) | `1400` |
+| `data-ft-curvature` | CRT curve | `0.1` |
+| `data-ft-mwp-legible` | Glyph legibility | `0.22` |
 
-`data-ft-opts` takes any key from the TUNING/DEFAULTS tables in the README.
-Use **single quotes** inside it — Webflow's attribute field rejects nested
-double quotes.
+The pattern is mechanical — `data-ft-glyph-gamma` → `glyphGamma`,
+`data-ft-scanline-intensity` → `scanlineIntensity` — so anything in the README's
+TUNING tables can be exposed. Add only the handful you actually want editable;
+a wall of properties makes the component worse, not better.
+
+Two things make this safe to leave blank: an **empty property value is ignored**
+(the default applies), and values are coerced by type, so `0.7` arrives as a
+number and `false` as a boolean, while colours and selectors stay strings.
+
+For a rarely-changed bundle of settings, `data-ft-opts` still takes JSON —
+**single quotes only**, Webflow's attribute field rejects nested double quotes:
+
+```
+{'curvature':0.1,'brightness':0.7}
+```
+
+Individual `data-ft-*` attributes win over keys inside `data-ft-opts`.
 
 ---
 

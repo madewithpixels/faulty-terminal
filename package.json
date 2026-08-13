@@ -1,7 +1,7 @@
 {
   "name": "@madewithpixels/faulty-terminal",
-  "version": "1.0.0",
-  "description": "WebGL dot-matrix terminal background with a ripple reveal — a single-tag drop-in for Webflow and any HTML page.",
+  "version": "1.2.0",
+  "description": "WebGL dot-matrix terminal background with a ripple reveal \u2014 a single-tag drop-in for Webflow and any HTML page.",
   "type": "module",
   "main": "dist/faulty-terminal.esm.js",
   "module": "dist/faulty-terminal.esm.js",

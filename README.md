@@ -63,14 +63,30 @@ attribute field won't take nested double quotes):
 <div class="faulty-terminal" data-ft-opts="{'tint':'#ff6b6b','ripple':false}"></div>
 ```
 
-Shorthand attributes, handy as Webflow component properties:
+**Every option also has its own attribute.** Any `data-ft-*` attribute maps to
+the matching option key, kebab-case to camelCase — which is what makes each one
+bindable as a Webflow component property:
+
+```html
+<div class="faulty-terminal"
+     data-ft-tint="#ff6b6b"
+     data-ft-brightness="0.7"
+     data-ft-ripple-duration="1400"
+     data-ft-curvature="0.1"></div>
+```
+
+Values are coerced by the type of the default: `"0.7"` → number, `"false"` →
+boolean, colours and selectors stay strings. **Empty values are ignored**, so an
+unfilled Webflow component property falls back to the default instead of
+clobbering it. Unknown keys are dropped with a console warning.
+
+Two aliases and one flag don't follow the pattern:
 
 | Attribute | Effect |
 |-----------|--------|
-| `data-ft-tint="#ff6b6b"` | glyph colour |
-| `data-ft-bg="#2b464e"` | background colour |
-| `data-ft-ripple="false"` / `data-ft-no-ripple` | disable the reveal |
-| `data-ft-origin="#my-logo"` | ripple origin element |
+| `data-ft-bg="#2b464e"` | → `bgColor` |
+| `data-ft-origin="#my-logo"` | → `rippleOriginSelector` |
+| `data-ft-no-ripple` | disable the reveal (bare attribute) |
 | `data-ft-debug` | force the debug panel on |
 
 ---
@@ -196,16 +212,16 @@ and every key can be overridden at runtime via `FaultyTerminalConfig` or
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `mwpColorStrength` | `0.78` | Intensity of the MWP brand palette overlay |
-| `mwpDensity` | `0.18` | How many cells carry M/W/P letterforms |
-| `mwpFlickerSpeed` | `0.30` | Master timing for decode/flicker |
+| `mwpColorStrength` | `0.47` | Intensity of the MWP brand palette overlay |
+| `mwpDensity` | `0.27` | How many cells carry M/W/P letterforms |
+| `mwpFlickerSpeed` | `0.10` | Master timing for decode/flicker |
 | `mwpWaveDuration` | `1050` | Heart-wave travel time (ms) |
 | `mwpWaveAt` | `0.05` | Ripple progress at which the heart wave launches |
-| `mwpLegible` | `0.22` | Fraction of time glyphs read as letters — lower = more coded |
-| `mwpGlitch` | `0.50` | How glitchy the decode/resolve is |
+| `mwpLegible` | `0.89` | Fraction of time glyphs read as letters — lower = more coded |
+| `mwpGlitch` | `0.85` | How glitchy the decode/resolve is |
 | `heartStrength` | `2.00` | Heart glow |
-| `heartScale` | `1.50` | Heart size |
-| `heartFalloff` | `0.45` | Heart edge softness |
+| `heartScale` | `1.00` | Heart size |
+| `heartFalloff` | `1.50` | Heart edge softness |
 
 ### Field
 
@@ -217,10 +233,10 @@ and every key can be overridden at runtime via `FaultyTerminalConfig` or
 | `glitchAmount` | `1.90` | Horizontal glitch displacement |
 | `flickerAmount` | `1.10` | Flicker intensity |
 | `noiseAmp` | `1.00` | Noise field amplitude |
-| `curvature` | `0.23` | CRT barrel distortion (0 = flat) |
-| `mouseStrength` | `0.70` | Mouse ripple reactivity |
-| `timeScale` | `1.00` | Animation speed multiplier |
-| `digitSize` | `1.40` | Glyph scale within each cell |
+| `curvature` | `0.30` | CRT barrel distortion (0 = flat) |
+| `mouseStrength` | `0.60` | Mouse ripple reactivity |
+| `timeScale` | `0.45` | Animation speed multiplier |
+| `digitSize` | `1.25` | Glyph scale within each cell |
 | `tiltStrength` | `0.40` | Device-tilt reactivity (mobile) |
 | `vignette` | `0.30` | Edge darkening |
 | `retraceSweep` | `1.00` | CRT retrace bar |
