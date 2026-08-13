@@ -38,38 +38,47 @@ Now drop the component into any section on any page. The script finds it.
 
 ### Component properties — per-instance configuration
 
-**Any** option can be a component property. On the root div, add a custom
-attribute named `data-ft-<option>` (kebab-case), then click the property icon
-next to its *value* field and promote it to a component property.
+Webflow can bind a component property to an element's **text**, but not to a
+custom attribute's value. So the config travels in an inert `<template>` inside
+the component:
 
-| Attribute | Suggested property name | Example |
-|-----------|------------------------|---------|
-| `data-ft-tint` | Tint | `#ff6b6b` |
-| `data-ft-bg` | Background | `#2b464e` |
-| `data-ft-brightness` | Brightness | `0.7` |
-| `data-ft-ripple` | Ripple on | `true` / `false` |
-| `data-ft-origin` | Ripple origin | `#hero-logo` |
-| `data-ft-ripple-duration` | Ripple speed (ms) | `1400` |
-| `data-ft-curvature` | CRT curve | `0.1` |
-| `data-ft-mwp-legible` | Glyph legibility | `0.22` |
-
-The pattern is mechanical — `data-ft-glyph-gamma` → `glyphGamma`,
-`data-ft-scanline-intensity` → `scanlineIntensity` — so anything in the README's
-TUNING tables can be exposed. Add only the handful you actually want editable;
-a wall of properties makes the component worse, not better.
-
-Two things make this safe to leave blank: an **empty property value is ignored**
-(the default applies), and values are coerced by type, so `0.7` arrives as a
-number and `false` as a boolean, while colours and selectors stay strings.
-
-For a rarely-changed bundle of settings, `data-ft-opts` still takes JSON —
-**single quotes only**, Webflow's attribute field rejects nested double quotes:
-
-```
-{'curvature':0.1,'brightness':0.7}
+```html
+<template data-ft-config>
+  <i data-ft-k="tint">…bound to the Tint property…</i>
+  <i data-ft-k="brightness">…bound to Brightness…</i>
+</template>
 ```
 
-Individual `data-ft-*` attributes win over keys inside `data-ft-opts`.
+Nothing in a `<template>` is rendered, styled, or exposed to screen readers, and
+the script deletes the node as soon as it has read it — so this costs the page
+nothing. Set the values per instance in the Settings panel like any other
+component property.
+
+Current properties, and the option each one feeds:
+
+| Property | Option | Example |
+|----------|--------|---------|
+| Tint | `tint` | `#ff6b6b` |
+| Background | `bgColor` | `#2b464e` |
+| Brightness | `brightness` | `0.7` |
+| Time scale | `timeScale` | `0.45` |
+| Ripple on | `ripple` | `true` / `false` |
+| Ripple origin | `rippleOriginSelector` | `.mwp-logo` |
+| Advanced options | JSON blob | `{'curvature':0.1}` |
+
+**Leave a property blank and the default applies** — blanks are ignored rather
+than written as empty values. Values are coerced by the type of the default, so
+`0.7` arrives as a number and `false` as a boolean, while colours and selectors
+stay strings.
+
+To expose another option, add a child to the template with
+`data-ft-k="<optionKey>"`, create a property, and bind that child's text to it.
+Any key from the README's TUNING tables works. Add only what needs to be
+editable — a wall of properties makes the component worse, not better.
+
+Outside Webflow, the same options can be set as `data-ft-*` attributes
+(`data-ft-tint`, `data-ft-ripple-duration`, …), which take precedence over the
+template.
 
 ---
 

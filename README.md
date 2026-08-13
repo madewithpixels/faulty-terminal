@@ -56,7 +56,26 @@ Change these when the art direction itself changes, then cut a release.
 <script src="https://cdn.jsdelivr.net/gh/madewithpixels/faulty-terminal@1/dist/faulty-terminal.min.js"></script>
 ```
 
-**3. Per element** — `data-ft-opts` with single-quoted JSON (Webflow's
+**3. Per element, from a Webflow component property** — an inert
+`<template data-ft-config>` inside the container. Each child names an option in
+`data-ft-k` and carries the value as its text:
+
+```html
+<div class="faulty-terminal">
+  <template data-ft-config>
+    <i data-ft-k="tint">#ff6b6b</i>
+    <i data-ft-k="brightness">0.7</i>
+  </template>
+</div>
+```
+
+Template content is never rendered, never styled and never enters the
+accessibility tree, and the script removes the node once it has read it — so
+after init the DOM is unchanged. This exists because Webflow can bind a
+component property to an element's **text**, but not to a custom attribute's
+value; the template is what makes every option settable per instance.
+
+**4. Per element, by hand** — `data-ft-opts` with single-quoted JSON (Webflow's
 attribute field won't take nested double quotes):
 
 ```html
@@ -75,7 +94,7 @@ bindable as a Webflow component property:
      data-ft-curvature="0.1"></div>
 ```
 
-Values are coerced by the type of the default: `"0.7"` → number, `"false"` →
+Values everywhere are coerced by the type of the default: `"0.7"` → number, `"false"` →
 boolean, colours and selectors stay strings. **Empty values are ignored**, so an
 unfilled Webflow component property falls back to the default instead of
 clobbering it. Unknown keys are dropped with a console warning.
@@ -128,8 +147,10 @@ it launches (`0.82` = 82%); `aftershockDelay` adds an optional ms pause on top.
 
 ## Debug panel
 
-Off in the shipped build. Turn it on with `?ft-debug` in the URL, a
-`data-ft-debug` attribute, or `FaultyTerminalConfig = { debugPanel: true }`.
+**On by default** — this is an MWP-internal component, so the panel ships
+enabled. Turn it off for a given site with
+`FaultyTerminalConfig = { debugPanel: false }`. When it is off, `?ft-debug` in
+the URL or a `data-ft-debug` attribute still brings it back on demand.
 Backtick (`` ` ``) toggles it; **◀ ▶** switches between instances.
 
 - **↺ re-trigger** — replays the reveal
@@ -261,7 +282,7 @@ In the `DEFAULTS` block below `TUNING` — less commonly changed:
 | `ripple` | `true` | Enable ripple reveal globally |
 | `rippleOriginSelector` | `null` | Element the ripple expands from |
 | `rippleEase` | `true` | Ease-in-out the ripple progress curve |
-| `debugPanel` | `false` | Show the debug panel |
+| `debugPanel` | `true` | Show the debug panel (backtick toggles) |
 | `targetFPS` | `60` | Target frame rate |
 | `autoTune` | `true` | Auto-reduce render resolution to maintain FPS |
 | `maxPixels` | `1100000` | Adaptive cap on rendered pixel area |

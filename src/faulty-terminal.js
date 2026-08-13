@@ -74,7 +74,7 @@ const DEFAULTS = {
   ripple: true,
   rippleOriginSelector: null,
   rippleEase: true,
-  debugPanel: false,
+  debugPanel: true,
   tiltReact: true,
   dpr: 1,
   maxPixels: 1100000,
@@ -1082,6 +1082,40 @@ function coerceAttrValue(raw, key){
   if(typeof DEFAULTS[key] === 'number' && v !== '' && !isNaN(Number(v))) return Number(v);
   return v;
 }
+// Config carried in an inert <template data-ft-config> inside the container.
+// Each child declares data-ft-k="<optionKey>" and holds the value as its text.
+// Template content is never rendered, never styled and never enters the
+// accessibility tree, so Webflow component properties can be bound to the text
+// without anything reaching the page. The node is removed once it has been read.
+function readConfigBlock(ctn){
+  const el = ctn.querySelector('[data-ft-config]');
+  if(!el) return {};
+  // <template> exposes its children on .content; tolerate a plain element too,
+  // in case the platform ever emits something other than a real template.
+  const root = el.content || el;
+  const out = {};
+  root.querySelectorAll('[data-ft-k]').forEach(node => {
+    const key = (node.getAttribute('data-ft-k') || '').trim();
+    const raw = (node.textContent || '').trim();
+    if(!key || raw === '') return;          // blank property → fall through to default
+    if(key === 'opts'){                     // JSON blob, same rules as data-ft-opts
+      try{
+        let j = raw; if(!j.startsWith('{')) j = '{' + j + '}';
+        Object.assign(out, JSON.parse(j.replace(/'/g, '"')));
+      }catch(e){
+        console.warn('[faulty-terminal] could not parse config block opts:', raw, e);
+      }
+      return;
+    }
+    if(!(key in DEFAULTS)){
+      console.warn('[faulty-terminal] unknown option in config block:', key);
+      return;
+    }
+    out[key] = coerceAttrValue(raw, key);
+  });
+  el.remove();
+  return out;
+}
 function parseAttrOpts(ctn){
   let overrides = {};
   const raw = ctn.getAttribute('data-ft-opts');
@@ -1094,6 +1128,8 @@ function parseAttrOpts(ctn){
       console.warn('[faulty-terminal] could not parse data-ft-opts:', raw, e);
     }
   }
+  // Config block sits between the JSON blob and the individual attributes.
+  Object.assign(overrides, readConfigBlock(ctn));
   // Any other data-ft-* attribute maps straight onto an option, so every
   // TUNING key can be exposed as a Webflow component property. Empty values
   // are ignored — an unfilled component property renders as an empty string
@@ -1118,7 +1154,11 @@ function siteConfig(){
   return (cfg && typeof cfg === 'object') ? cfg : {};
 }
 function debugRequested(){
-  if(siteConfig().debugPanel === true) return true;
+  const cfg = siteConfig();
+  // an explicit site-wide setting wins either way
+  if(cfg.debugPanel === false) return false;
+  if(cfg.debugPanel === true) return true;
+  if(DEFAULTS.debugPanel) return true;
   if(typeof location !== 'undefined' && /[?&]ft-debug\b/.test(location.search)) return true;
   return !!document.querySelector('[data-ft-debug]');
 }
