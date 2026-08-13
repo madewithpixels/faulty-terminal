@@ -137,15 +137,38 @@ components, remove some bindings."* That destroys exactly what makes this
 component work — the component link and all 53 property bindings. The result is a
 detached pile of divs with an inert template full of empty text.
 
-This is almost certainly why Navbar Light's CDN edition has its **own generated
-property IDs** rather than shared ones: it was rebuilt, not pasted.
+Confirmed by the Navbar Light team's own experience (2026-08-13). They tried both
+routes:
+
+- **In-site native rebuild** — duplicated an earlier component, refactored it
+  through MCP, moved bound elements where possible, recreated and rebound
+  properties, all inside one site. Bindings survived, because the component never
+  crossed a site boundary. This is how the live Navbar Light was built.
+- **Cross-site clipboard paste** into the Smashburger site — pasted *without*
+  warnings, but only partially. Survived: structure, links, attributes, the
+  embed/loader, styles and all nine SVG assets. Lost: **component identity,
+  variants and all property bindings**. The target site reported zero imported
+  components; property-bound settings became static placeholder content, and some
+  imported classes gained unwanted breakpoint-related suffixes.
+
+That last point is worse for this component than for a navbar: **`.faulty-terminal`
+is the script's selector.** A rename to `.faulty-terminal-2` means the script never
+finds the element and nothing renders.
+
+One consolation from the blank-means-inherit design: if a flattened paste *did*
+keep the class name, the component would still render correctly at the shipped
+defaults — the emptied bindings simply read as "inherit". It would lose per-instance
+control, not correctness.
 
 Two mechanisms that do work:
 
-1. **Webflow Libraries** — the workspace-scoped sharing feature, which preserves
-   component identity and bindings. This is the intended route; plain copy/paste
-   is not.
-2. **Rebuild natively per site via the API** — roughly six calls, and fully
+1. **Webflow Libraries — VERIFIED WORKING (2026-08-13).** Library sharing
+   preserves component identity, variants and property bindings intact. This is
+   the route: publish the library from MWP Component Library, install it in the
+   consuming site, place the component. No rebuild, no second parameter set.
+2. **Rebuild natively per site via the API** — fallback only, now that Libraries
+   is confirmed. Creates a *second* component with its own 53 property IDs, which
+   then has to be kept in step on every new tunable. Roughly six calls, and fully
    specified by this document: build `section > DOM div > template > 53 carriers`,
    create the 53 string properties, bind each carrier's `text` to its property by
    matching the `data-ft-k` attribute to the property name. Element ids come back
@@ -160,9 +183,9 @@ properly bound component.
 
 1. **Home page swap** — madewithpixels still uses a hand-built div, not the
    component, and still has the older 7-prop component from the first attempt.
-   Do **not** paste from the library (see above). Either share via Webflow
-   Libraries, or have the full component rebuilt natively in madewithpixels via
-   the API. Remember the old div carries
+   Route: **publish the library and install it in madewithpixels**, then place the
+   component and delete the old div. Do not paste, and do not rebuild natively.
+   Remember the old div carries
    `data-ft-opts="'rippleOriginSelector': '.mwp-logo'"` — set the **Ripple origin**
    property to `.mwp-logo` or the ripple will expand from the centre.
 
