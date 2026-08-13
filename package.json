@@ -1,0 +1,33 @@
+{
+  "name": "@madewithpixels/faulty-terminal",
+  "version": "1.0.0",
+  "description": "WebGL dot-matrix terminal background with a ripple reveal — a single-tag drop-in for Webflow and any HTML page.",
+  "type": "module",
+  "main": "dist/faulty-terminal.esm.js",
+  "module": "dist/faulty-terminal.esm.js",
+  "browser": "dist/faulty-terminal.min.js",
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "NOTICE.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/madewithpixels/faulty-terminal.git"
+  },
+  "homepage": "https://github.com/madewithpixels/faulty-terminal",
+  "license": "SEE LICENSE IN NOTICE.md",
+  "dependencies": {
+    "ogl": "1.0.11"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.0",
+    "playwright": "^1.62.1"
+  }
+}

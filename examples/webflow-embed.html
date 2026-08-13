@@ -1,0 +1,29 @@
+<!-- ==========================================================================
+     faulty-terminal — Webflow embed
+     Paste this ONCE per page:
+       Page Settings → Custom Code → Before </body> tag
+     (or into a single Embed element on the page).
+
+     Then add a Div Block with the class  faulty-terminal  wherever the
+     effect should render. Every .faulty-terminal on the page is picked up
+     automatically.
+
+     Pin the version. Bump the number when you ship a new release.
+       @1        → latest 1.x  (gets fixes automatically)
+       @1.0.0    → exactly this build (never changes)
+     ========================================================================== -->
+
+<script>
+  /* OPTIONAL — site-wide overrides. Must come BEFORE the script tag below.
+     Anything from the TUNING / DEFAULTS tables in the README can go here.
+     Delete this block entirely to use the shipped defaults. */
+  window.FaultyTerminalConfig = {
+    // tint: '#366777',
+    // bgColor: '#2b464e',
+    // brightness: 0.50,
+    // ripple: true,
+    // debugPanel: true,   // or just add ?ft-debug to the URL
+  };
+</script>
+
+<script src="https://cdn.jsdelivr.net/gh/madewithpixels/faulty-terminal@1/dist/faulty-terminal.min.js"></script>
