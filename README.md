@@ -151,7 +151,12 @@ it launches (`0.82` = 82%); `aftershockDelay` adds an optional ms pause on top.
 enabled. Turn it off for a given site with
 `FaultyTerminalConfig = { debugPanel: false }`. When it is off, `?ft-debug` in
 the URL or a `data-ft-debug` attribute still brings it back on demand.
-Backtick (`` ` ``) toggles it; **◀ ▶** switches between instances.
+Backtick (`` ` ``) toggles it.
+
+With more than one terminal on a page, **◀ ▶** switches between them. The
+selected instance is outlined on the page and named in the panel header after
+its id or its parent's class, so it's clear which one the sliders are driving.
+**Alt-click** a terminal to bring it straight into the panel.
 
 - **↺ re-trigger** — replays the reveal
 - **⎘ copy values** — copies the current state as a `const TUNING = { ... }`
@@ -244,12 +249,31 @@ and every key can be overridden at runtime via `FaultyTerminalConfig` or
 | `heartScale` | `1.00` | Heart size |
 | `heartFalloff` | `1.50` | Heart edge softness |
 
+### Brand cycle
+
+Rotates the glyph colour through the three brand colours. Off by default, so
+existing pages are unchanged until `brandMode` is turned up. The colours are the
+same CSS variables the ripple uses, so they follow the site's palette.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `brandMode` | `0` | 0 off · 1 whole field · 2 gradient sweep · 3 per glyph |
+| `brandStrength` | `0.60` | Opacity of the brand colour over the base tint (0–1) |
+| `brandSpeed` | `0.15` | How fast the cycle advances |
+| `brandSoftness` | `0.60` | Crossfade width — 0 = hard cuts, 1 = continuous blend |
+| `brandScale` | `1.00` | Gradient tightness (mode 2 only) |
+| `brandAngle` | `0.25` | Gradient direction, 0–1 = full turn (mode 2 only) |
+
+Mode 1 makes the whole field one colour at a time. Mode 2 shows all three at
+once as a gradient drifting across the field. Mode 3 gives every glyph its own
+colour and offset, so the field shimmers between all three at once.
+
 ### Field
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `brightness` | `0.50` | Overall field brightness |
-| `glyphGamma` | `1.80` | Glyph contrast curve |
+| `brightness` | `0.20` | Overall field brightness |
+| `glyphGamma` | `3.60` | Glyph contrast curve |
 | `scanlineIntensity` | `1.00` | Scanline strength |
 | `glitchAmount` | `1.90` | Horizontal glitch displacement |
 | `flickerAmount` | `1.10` | Flicker intensity |

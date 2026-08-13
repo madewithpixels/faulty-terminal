@@ -38,9 +38,16 @@ const TUNING = {
   heartFalloff: 1.50,
   mwpLegible: 0.89,
   mwpGlitch: 0.85,
+  // brand cycle
+  brandMode: 0, // 0 off · 1 whole field · 2 gradient sweep · 3 per glyph
+  brandStrength: 0.60,
+  brandSpeed: 0.15,
+  brandSoftness: 0.60,
+  brandScale: 1.00,
+  brandAngle: 0.25,
   // field
-  brightness: 0.50,
-  glyphGamma: 1.80,
+  brightness: 0.20,
+  glyphGamma: 3.60,
   scanlineIntensity: 1.00,
   glitchAmount: 1.90,
   flickerAmount: 1.10,
@@ -111,6 +118,12 @@ const SLIDERS = [
   ['heartFalloff', 'uHeartFalloff', 'heart falloff', 0.0, 2.0, 0.05, 'MWP'],
   ['mwpLegible', 'uMwpLegible', 'legible time', 0.0, 1.0, 0.01, 'MWP'],
   ['mwpGlitch', 'uMwpGlitch', 'decode glitch', 0.0, 1.0, 0.05, 'MWP'],
+  ['brandMode', 'uBrandMode', 'mode', 0, 3, 1, 'BRAND', 'select'],
+  ['brandStrength', 'uBrandStrength', 'opacity', 0.0, 1.0, 0.01, 'BRAND'],
+  ['brandSpeed', 'uBrandSpeed', 'speed', 0.0, 2.0, 0.01, 'BRAND'],
+  ['brandSoftness', 'uBrandSoftness', 'crossfade', 0.0, 1.0, 0.01, 'BRAND'],
+  ['brandScale', 'uBrandScale', 'sweep scale', 0.0, 4.0, 0.05, 'BRAND'],
+  ['brandAngle', 'uBrandAngle', 'sweep angle', 0.0, 1.0, 0.01, 'BRAND'],
   ['brightness', 'uBrightness', 'brightness', 0.1, 2.0, 0.05, 'FIELD'],
   ['glyphGamma', 'uGlyphGamma', 'glyph gamma', 0.5, 4.0, 0.1, 'FIELD'],
   ['scanlineIntensity', 'uScanlineIntensity', 'scanlines', 0.0, 2.0, 0.05, 'FIELD'],
@@ -130,6 +143,7 @@ const SLIDERS = [
 ];
 const SELECT_OPTIONS = {
   blendMode: ['screen','add','overlay','soft'],
+  brandMode: ['off','whole field','gradient sweep','per glyph'],
 };
 const vertexShader = `
 attribute vec2 position;
@@ -161,6 +175,12 @@ uniform float uUsePageLoadAnimation;
 uniform float uBrightness;
 uniform float uGlyphGamma;
 uniform float uMwpColorStrength;
+uniform float uBrandMode;
+uniform float uBrandStrength;
+uniform float uBrandSpeed;
+uniform float uBrandSoftness;
+uniform float uBrandScale;
+uniform float uBrandAngle;
 uniform float uRippleActive;
 uniform float uRippleProgress;
 uniform vec2  uRippleOrigin;
@@ -401,6 +421,19 @@ digit(p + vec2(off,0.0)) + digit(p + vec2(0.0,off));
 return vec3(0.9) * middle + sum * 0.18 * vec3(1.0) * bar;
 }
 vec2 barrel(vec2 uv){ vec2 c = uv * 2.0 - 1.0; float r2 = dot(c,c); c *= 1.0 + uCurvature * r2; return c * 0.5 + 0.5; }
+// Cycles raspberry -> coral -> teal -> raspberry. phase advances by 1 per
+// colour; uBrandSoftness controls how much of each step is spent crossfading
+// (0 = hard cuts, 1 = continuous blend).
+vec3 brandColor(float phase){
+float t = fract(phase / 3.0) * 3.0;
+float i = floor(t);
+float f = t - i;
+float soft = max(uBrandSoftness, 0.001);
+float w = smoothstep(0.0, 1.0, clamp((f - (1.0 - soft)) / soft, 0.0, 1.0));
+vec3 a = i < 0.5 ? uRippleColor0 : (i < 1.5 ? uRippleColor1 : uRippleColor2);
+vec3 b = i < 0.5 ? uRippleColor1 : (i < 1.5 ? uRippleColor2 : uRippleColor0);
+return mix(a, b, w);
+}
 void main(){
 time = iTime * 0.333333;
 vec2 uv = vUv;
@@ -441,6 +474,23 @@ float sband = exp(-sd * sd * 250.0);
 blend = clamp(blend + blend * sband * uSweep * 0.9, 0.0, 1.0);
 }
 col = mix(uBgColor, uTint, blend);
+if (uBrandMode > 0.5 && uBrandStrength > 0.001) {
+float bt = iTime * uBrandSpeed;
+float phase;
+if (uBrandMode < 1.5) {
+phase = bt;                                   // whole field
+} else if (uBrandMode < 2.5) {
+float ang = uBrandAngle * 6.2831853;
+vec2 bdir = vec2(cos(ang), sin(ang));
+vec2 bo = uv - 0.5; bo.x *= iResolution.z;
+phase = bt + dot(bo, bdir) * uBrandScale * 3.0;   // gradient sweep
+} else {
+vec2 bgrid = uGridMul * 15.0;
+vec2 bs = floor(uv * uScale * bgrid) / bgrid;
+phase = bt + fract(sin(dot(bs, vec2(12.9898, 78.233))) * 43758.5453) * 3.0;
+}
+col = mix(col, mix(uBgColor, brandColor(phase), blend), uBrandStrength);
+}
 if (uRippleActive > 0.5 && uRippleProgress > 0.001) {
 vec2 dh = uv - uRippleOrigin;
 dh.x *= iResolution.z;
@@ -576,6 +626,12 @@ function createInstance(ctn, opts){
       uBrightness:{value:opts.brightness},
       uGlyphGamma:{value:opts.glyphGamma??1.0},
       uMwpColorStrength:{value:opts.mwpColorStrength??0.5},
+      uBrandMode:{value:opts.brandMode??0},
+      uBrandStrength:{value:opts.brandStrength??0.6},
+      uBrandSpeed:{value:opts.brandSpeed??0.15},
+      uBrandSoftness:{value:opts.brandSoftness??0.6},
+      uBrandScale:{value:opts.brandScale??1},
+      uBrandAngle:{value:opts.brandAngle??0.25},
       uRippleActive:{value:0},
       uRippleProgress:{value:0},
       uRippleOrigin:{value:new Float32Array([0.5,0.5])},
@@ -950,6 +1006,35 @@ transition:background .15s;}
   const ilabel=panel.querySelector('#ft-ilabel');
   let currentIdx=0;
   const inst=()=>instances[currentIdx];
+  // Name each instance after where it sits, so "which one am I dragging?" has
+  // an answer that survives more than one terminal on a page.
+  function instName(i){
+    const c=instances[i].ctn;
+    const named=c.id
+      || (c.parentElement&&c.parentElement.id)
+      || (c.parentElement&&(c.parentElement.className||'').trim().split(/\s+/)
+          .filter(n=>n&&!/^w-|^--?is-/.test(n))[0])
+      || (c.closest&&c.closest('section[class]')&&c.closest('section[class]').className.trim().split(/\s+/)[0]);
+    return named ? String(named).slice(0,18) : `terminal ${i+1}`;
+  }
+  // Outline whichever instance the panel is driving.
+  const marker=document.createElement('style');
+  marker.textContent='.ft-panel-selected{outline:2px solid #3DC096;outline-offset:-2px;}';
+  document.head.appendChild(marker);
+  function markSelected(){
+    instances.forEach((it,i)=>it.ctn.classList.toggle('ft-panel-selected',i===currentIdx));
+  }
+  // Alt-click a terminal to bring it into the panel. The containers are
+  // pointer-events:none, so hit-test their rects rather than using the target.
+  document.addEventListener('click',e=>{
+    if(!e.altKey || panel.classList.contains('ft-hidden')) return;
+    for(let i=0;i<instances.length;i++){
+      const r=instances[i].ctn.getBoundingClientRect();
+      if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){
+        loadInst(i); break;
+      }
+    }
+  });
   const inputs={}; // key → {input, val (span or null)}
   let lastSec=null;
   SLIDERS.forEach(([key,,label,min,max,step,section,type])=>{
@@ -1005,7 +1090,10 @@ transition:background .15s;}
   });
   function loadInst(idx){
     currentIdx=idx;
-    ilabel.textContent=`Terminal ${idx+1} / ${instances.length}`;
+    ilabel.textContent = instances.length>1
+      ? `${instName(idx)}  ${idx+1}/${instances.length}`
+      : instName(idx);
+    markSelected();
     SLIDERS.forEach(([key,,,,,step,,type])=>{
       if(!inputs[key]) return;
       if(type==='bool'){
@@ -1044,9 +1132,16 @@ transition:background .15s;}
     btn.textContent='✓ copied!';
     setTimeout(()=>btn.textContent=orig,1500);
   });
-  document.addEventListener('keydown',e=>{ if(e.key==='`') panel.classList.toggle('ft-hidden'); });
+  document.addEventListener('keydown',e=>{
+    if(e.key!=='`') return;
+    panel.classList.toggle('ft-hidden');
+    if(panel.classList.contains('ft-hidden'))
+      instances.forEach(it=>it.ctn.classList.remove('ft-panel-selected'));
+    else markSelected();
+  });
   panel.classList.add('ft-hidden');
   loadInst(0);
+  instances.forEach(it=>it.ctn.classList.remove('ft-panel-selected'));
 }
 // ---------------------------------------------------------------------------
 // Public API + boot
