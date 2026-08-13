@@ -32,6 +32,12 @@ initialised automatically; the base CSS is injected by the script.
 | `@1` | latest 1.x — but jsDelivr caches range resolution for up to 12h, so it lags behind a fresh tag |
 | `@main` | tip of the branch — 12h cache, **don't use in production** |
 
+**Webflow component:** `Faulty Terminal BG` lives in the **MWP Component Library**
+site with all 53 tunable parameters exposed as component properties. Every Webflow
+id, the property list, and the binding rules that shape the design are recorded in
+[`webflow/component-map.md`](./webflow/component-map.md) — read that before
+touching the component.
+
 Webflow specifics — component setup, properties, interactions — are in
 [`examples/Webflow usage.md`](./examples/Webflow%20usage.md), with a
 paste-ready block in [`examples/webflow-embed.html`](./examples/webflow-embed.html).
