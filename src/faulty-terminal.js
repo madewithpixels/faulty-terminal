@@ -555,11 +555,25 @@ col *= 1.0 - dot(vq, vq) * uVignette * 1.3;
 if(uDither > 0.0){ col += (hash21(gl_FragCoord.xy) - 0.5) * (uDither * 0.003922); }
 gl_FragColor = vec4(col, 1.0);
 }`;
-function hexToRgb(hex){
+const HEX_RE = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i;
+function hexToRgb(hex, fallback){
   let h = (hex||'').replace('#','').trim();
+  if(!HEX_RE.test(h)){
+    // A malformed colour used to reach parseInt and yield NaN, which the shader
+    // rendered as a black field. Refuse it instead.
+    if(hex) console.warn('[faulty-terminal] ignoring invalid colour:', hex);
+    return hexToRgb(fallback || '#000000');
+  }
   if(h.length===3) h = h.split('').map(c=>c+c).join('');
   const n = parseInt(h,16);
   return [((n>>16)&255)/255,((n>>8)&255)/255,(n&255)/255];
+}
+// A CSS selector that does not parse throws inside querySelector. One bad value
+// must not take the whole reveal down with it.
+function safeQuery(sel){
+  if(!sel) return null;
+  try{ return document.querySelector(sel); }
+  catch(e){ console.warn('[faulty-terminal] ignoring invalid selector:', sel); return null; }
 }
 const clamp = (v,lo,hi) => Math.min(hi,Math.max(lo,v));
 const fmt = (v,step) => step < 1 ? (+v).toFixed(2) : String(Math.round(v));
@@ -572,17 +586,17 @@ function createInstance(ctn, opts){
   function cssColor(varName,fallback){
     const v = getComputedStyle(document.documentElement).getPropertyValue(varName).trim()
            || getComputedStyle(ctn).getPropertyValue(varName).trim();
-    return hexToRgb(v||fallback);
+    return hexToRgb(v||fallback, fallback);
   }
   const rippleC0 = cssColor('--raspberry','#E84F5C');
   const rippleC1 = cssColor('--coral','#F28745');
   const rippleC2 = cssColor('--teal','#3DC096');
   const renderer = new Renderer({ dpr: opts.dpr });
   const gl = renderer.gl;
-  const bg = hexToRgb(bgHex);
+  const bg = hexToRgb(bgHex, '#2b464e');
   gl.clearColor(bg[0],bg[1],bg[2],1);
   const geometry = new Triangle(gl);
-  const tint = hexToRgb(opts.tint);
+  const tint = hexToRgb(opts.tint, '#366777');
   const mouse = {x:0.5,y:0.5};
   const smoothMouse = {x:0.5,y:0.5};
   const timeOffset = Math.random()*100;
@@ -746,7 +760,7 @@ function createInstance(ctn, opts){
   function triggerRipple(){
     if(rippleTriggered) return;
     rippleTriggered=true;
-    const originEl = opts.rippleOriginSelector ? document.querySelector(opts.rippleOriginSelector) : ctn;
+    const originEl = safeQuery(opts.rippleOriginSelector) || ctn;
     const er=(originEl||ctn).getBoundingClientRect();
     const cr=ctn.getBoundingClientRect();
     program.uniforms.uRippleOrigin.value[0]=Math.max(0,Math.min(1,(er.left+er.width*0.5-cr.left)/cr.width));
@@ -915,7 +929,7 @@ function createInstance(ctn, opts){
     return opts[key];
   }
   function retrigger(){
-    const originEl = opts.rippleOriginSelector ? document.querySelector(opts.rippleOriginSelector) : ctn;
+    const originEl = safeQuery(opts.rippleOriginSelector) || ctn;
     const er=(originEl||ctn).getBoundingClientRect();
     const cr=ctn.getBoundingClientRect();
     program.uniforms.uRippleOrigin.value[0]=Math.max(0,Math.min(1,(er.left+er.width*0.5-cr.left)/cr.width));
@@ -1176,14 +1190,29 @@ function attrKeyToOption(dataKey){
   const k = dataKey.slice(2); // strip the "ft" prefix
   return k.charAt(0).toLowerCase() + k.slice(1);
 }
+// Webflow gives a new Text Block this copy. If a config carrier still holds it,
+// the property was never filled in — treat it as blank, not as a value.
+const WF_PLACEHOLDER = 'This is some text inside of a div block.';
+const REJECTED = Symbol('rejected');
 function coerceAttrValue(raw, key){
   const v = String(raw).trim();
+  if(v === '' || v === WF_PLACEHOLDER) return REJECTED;
+  const def = DEFAULTS[key];
+  if(typeof def === 'boolean'){
+    if(v === 'true') return true;
+    if(v === 'false') return false;
+    console.warn('[faulty-terminal] ' + key + ' expects true/false, got:', v);
+    return REJECTED;
+  }
+  if(typeof def === 'number'){
+    const n = Number(v);
+    if(v !== '' && isFinite(n)) return n;
+    console.warn('[faulty-terminal] ' + key + ' expects a number, got:', v);
+    return REJECTED;
+  }
   if(v === 'true') return true;
   if(v === 'false') return false;
   if(v === 'null') return null;
-  // only coerce to number when the default for this key is numeric, so colour
-  // strings and selectors are never mangled
-  if(typeof DEFAULTS[key] === 'number' && v !== '' && !isNaN(Number(v))) return Number(v);
   return v;
 }
 // Config carried in an inert <template data-ft-config> inside the container.
@@ -1215,7 +1244,8 @@ function readConfigBlock(ctn){
       console.warn('[faulty-terminal] unknown option in config block:', key);
       return;
     }
-    out[key] = coerceAttrValue(raw, key);
+    const val = coerceAttrValue(raw, key);
+    if(val !== REJECTED) out[key] = val;
   });
   el.remove();
   return out;
@@ -1248,7 +1278,8 @@ function parseAttrOpts(ctn){
         dataKey.replace(/[A-Z]/g, c => '-' + c.toLowerCase()) + ':', key);
       return;
     }
-    overrides[key] = coerceAttrValue(raw, key);
+    const val = coerceAttrValue(raw, key);
+    if(val !== REJECTED) overrides[key] = val;
   });
   if(ctn.hasAttribute('data-ft-no-ripple')) overrides.ripple = false;
   return overrides;
