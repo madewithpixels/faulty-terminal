@@ -757,9 +757,19 @@ function createInstance(ctn, opts){
       }
     }
   }
-  // Tolerate a namespaced reveal class too (…--does-ripple), for the same reason.
-  const hasRippleClass = () =>
-    [...ctn.classList].some(c => c === 'does-ripple' || c.endsWith('--does-ripple'));
+  // The reveal class may be namespaced (…--does-ripple), and it may be applied to
+  // an ANCESTOR rather than the container itself. A Webflow interaction targets
+  // by class, and a Library install renames the component's own class — so the
+  // only stable thing to target is a wrapper the site owns. Accept either.
+  const isRippleClass = n =>
+    !!n && !!n.classList &&
+    [...n.classList].some(c => c === 'does-ripple' || c.endsWith('--does-ripple'));
+  const rippleChain = () => {
+    const chain = [];
+    for(let n = ctn; n && n !== document.documentElement; n = n.parentElement) chain.push(n);
+    return chain;
+  };
+  const hasRippleClass = () => rippleChain().some(isRippleClass);
   function triggerRipple(){
     if(rippleTriggered) return;
     rippleTriggered=true;
@@ -778,8 +788,8 @@ function createInstance(ctn, opts){
     program.uniforms.uUsePageLoadAnimation.value=1;
     if(hasRippleClass()) triggerRipple();
     else {
-      new MutationObserver(()=>{ if(hasRippleClass()) triggerRipple(); })
-        .observe(ctn,{attributes:true,attributeFilter:['class']});
+      const mo=new MutationObserver(()=>{ if(hasRippleClass()) triggerRipple(); });
+      rippleChain().forEach(n=>mo.observe(n,{attributes:true,attributeFilter:['class']}));
       // With the reveal armed and nothing ever adding does-ripple, the field
       // renders nothing at all — a missing interaction looks identical to a
       // broken component. Fade in instead, so it reads as un-animated.

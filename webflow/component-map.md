@@ -39,6 +39,26 @@ root also now carries a static `data-faulty-terminal` attribute — attributes
 survive a Library install unchanged, so that hook is namespace-proof and is the
 one to rely on.
 
+### Interactions must target a wrapper, not the component
+
+The same rename breaks Webflow **interactions**, which was missed the first time:
+an interaction targets by class, and the component's own class is namespaced on
+install. A Page Load interaction pointing at `.faulty-terminal` runs, matches
+nothing, and adds the reveal class to no element — with no error.
+
+**Do not** point the interaction at the namespaced class; it changes if the
+library is renamed or reinstalled. Since **v1.7.1** the reveal class is accepted
+on the container *or any ancestor*, so:
+
+- target a wrapper the consuming site owns (on madewithpixels: `.ft-wrapper`)
+- action: Add Class `does-ripple`
+
+Alternatively skip interactions entirely with one line after the script tag:
+
+```html
+<script>addEventListener('load', () => window.FaultyTerminal.retrigger());</script>
+```
+
 ### Per-site prerequisite — the script tag
 
 **The component does nothing without the script.** It is not part of the
