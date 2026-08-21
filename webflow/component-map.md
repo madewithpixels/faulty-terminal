@@ -19,6 +19,26 @@ none of it has to be rediscovered. Mirrors the convention used by Webflow-Navbar
 Single-page publishing is **Enterprise-only** on madewithpixels and returns
 `Invalid parameter: pageId`. Only a full-site publish is available.
 
+### Library installs namespace the class — the script must not rely on it
+
+Installing this component into a site via Webflow **Libraries** renames its
+classes with the source site's name:
+
+```html
+<div class="mwp-component-library--faulty-terminal">
+```
+
+`.faulty-terminal` then matches nothing, the script initialises zero instances,
+and the page renders nothing — with no error, because there is nothing to error
+on. Hit on madewithpixels 2026-08-14.
+
+Since **v1.7.0** the script matches `.faulty-terminal`,
+`[class*="faulty-terminal"]` and `[data-faulty-terminal]`, and the same tolerance
+applies to the reveal class (`does-ripple` or `…--does-ripple`). The component
+root also now carries a static `data-faulty-terminal` attribute — attributes
+survive a Library install unchanged, so that hook is namespace-proof and is the
+one to rely on.
+
 ### Per-site prerequisite — the script tag
 
 **The component does nothing without the script.** It is not part of the
@@ -33,8 +53,8 @@ Pin the exact version and bump it on release. Status:
 
 | Site | Script tag | Version |
 |---|---|---|
-| madewithpixels | yes, footer | 1.6.0 |
-| MWP Component Library | yes, footer — added 2026-08-14 | 1.6.0 |
+| madewithpixels | yes, footer | needs bumping to 1.7.0 |
+| MWP Component Library | yes, footer — added 2026-08-14 | needs bumping to 1.7.0 |
 
 Symptom when it is missing: the container renders as an empty (often black) div,
 no canvas, and `window.FaultyTerminal` is undefined in the console. That is the

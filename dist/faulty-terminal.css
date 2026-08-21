@@ -1,2 +1,5 @@
-.faulty-terminal { overflow: hidden; }
-.faulty-terminal canvas { display: block; width: 100%; height: 100%; }
+/* Matches a plain .faulty-terminal and any namespaced variant a Webflow Library
+   install produces, e.g. .mwp-component-library--faulty-terminal. */
+[class*="faulty-terminal"], [data-faulty-terminal] { overflow: hidden; }
+[class*="faulty-terminal"] > canvas,
+[data-faulty-terminal] > canvas { display: block; width: 100%; height: 100%; }

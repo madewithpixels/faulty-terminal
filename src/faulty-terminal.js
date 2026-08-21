@@ -757,8 +757,9 @@ function createInstance(ctn, opts){
       }
     }
   }
+  // Tolerate a namespaced reveal class too (…--does-ripple), for the same reason.
   const hasRippleClass = () =>
-    ctn.classList.contains('--does-ripple')||ctn.classList.contains('does-ripple');
+    [...ctn.classList].some(c => c === 'does-ripple' || c.endsWith('--does-ripple'));
   function triggerRipple(){
     if(rippleTriggered) return;
     rippleTriggered=true;
@@ -1180,6 +1181,14 @@ transition:background .15s;}
   loadInst(0);
   instances.forEach(it=>it.ctn.classList.remove('ft-panel-selected'));
 }
+// Webflow Libraries namespace a component's classes on install — a component
+// shared from "MWP Component Library" arrives as
+// .mwp-component-library--faulty-terminal, not .faulty-terminal. Matching the
+// exact class alone silently finds nothing, so match any class containing the
+// name, plus an explicit data attribute (attributes survive the install intact
+// and are the namespace-proof hook).
+const FT_SELECTOR = '.faulty-terminal, [class*="faulty-terminal"], [data-faulty-terminal]';
+
 // ---------------------------------------------------------------------------
 // Public API + boot
 // ---------------------------------------------------------------------------
@@ -1321,7 +1330,7 @@ let panelBuilt = false;
 function init(root){
   injectStyle();
   const scope = root || document;
-  const found = scope.querySelectorAll ? scope.querySelectorAll('.faulty-terminal') : [];
+  const found = scope.querySelectorAll ? scope.querySelectorAll(FT_SELECTOR) : [];
   const fresh = [];
   found.forEach(ctn => {
     if(ctn[INITED]) return;
