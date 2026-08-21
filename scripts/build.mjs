@@ -49,5 +49,6 @@ if (watch) {
 } else {
   await Promise.all(builds.map((cfg) => esbuild.build(cfg)));
   writeStandaloneEmbed();
+  await import('./build-cdn-loader.mjs');
   console.log(`built v${version}`);
 }

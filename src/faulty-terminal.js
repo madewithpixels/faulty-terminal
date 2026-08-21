@@ -38,6 +38,8 @@ const TUNING = {
   heartFalloff: 1.50,
   mwpLegible: 0.89,
   mwpGlitch: 0.85,
+  // reveal safety net — ms to wait for does-ripple before fading in anyway (0 = never)
+  revealFallback: 2500,
   // brand cycle
   brandMode: 0, // 0 off · 1 whole field · 2 gradient sweep · 3 per glyph
   brandStrength: 0.60,
@@ -769,12 +771,24 @@ function createInstance(ctn, opts){
     program.uniforms.uRippleProgress.value=0;
     rippleStartTime=performance.now();
   }
+  let pageLoadFallback=false;
   if(opts.ripple){
     program.uniforms.uPageLoadProgress.value=0;
     program.uniforms.uUsePageLoadAnimation.value=1;
     if(hasRippleClass()) triggerRipple();
-    else new MutationObserver(()=>{ if(hasRippleClass()) triggerRipple(); })
-      .observe(ctn,{attributes:true,attributeFilter:['class']});
+    else {
+      new MutationObserver(()=>{ if(hasRippleClass()) triggerRipple(); })
+        .observe(ctn,{attributes:true,attributeFilter:['class']});
+      // With the reveal armed and nothing ever adding does-ripple, the field
+      // renders nothing at all — a missing interaction looks identical to a
+      // broken component. Fade in instead, so it reads as un-animated.
+      if(opts.revealFallback>0) setTimeout(()=>{
+        if(rippleTriggered) return;
+        pageLoadFallback=true; loadStart=0;
+        console.warn('[faulty-terminal] no does-ripple after '+opts.revealFallback+
+          'ms — fading in without the reveal. Add the interaction, or set ripple=false.');
+      }, opts.revealFallback);
+    }
   }
   function autoTune(now){
     if(!opts.autoTune) return;
@@ -839,7 +853,7 @@ function createInstance(ctn, opts){
       program.uniforms.uMwpWaveEnv.value=
         wp>=1?0:(wp<0.1?wp*10:Math.pow(1-(wp-0.1)/0.9,2));
     }
-    if(opts.pageLoadAnimation && !opts.ripple){
+    if(opts.pageLoadAnimation && (!opts.ripple || pageLoadFallback)){
       if(loadStart===0) loadStart=t;
       const elapsed=t-loadStart-(opts.pageLoadDelay||0);
       program.uniforms.uPageLoadProgress.value=Math.min(Math.max(elapsed,0)/2000,1);
