@@ -276,9 +276,9 @@ and every key can be overridden at runtime via `FaultyTerminalConfig` or
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `mwpColorStrength` | `0.47` | Intensity of the MWP brand palette overlay |
-| `mwpDensity` | `0.27` | How many cells carry M/W/P letterforms |
-| `mwpFlickerSpeed` | `0.10` | Master timing for decode/flicker |
+| `mwpColorStrength` | `0.65` | Intensity of the MWP brand palette overlay |
+| `mwpDensity` | `0.04` | How many cells carry M/W/P letterforms |
+| `mwpFlickerSpeed` | `0.40` | Master timing for decode/flicker |
 | `mwpWaveDuration` | `1050` | Heart-wave travel time (ms) |
 | `mwpWaveAt` | `0.05` | Ripple progress at which the heart wave launches |
 | `mwpLegible` | `0.89` | Fraction of time glyphs read as letters — lower = more coded |
@@ -289,18 +289,21 @@ and every key can be overridden at runtime via `FaultyTerminalConfig` or
 
 ### Brand cycle
 
-Rotates the glyph colour through the three brand colours. Off by default, so
-existing pages are unchanged until `brandMode` is turned up. The colours are the
-same CSS variables the ripple uses, so they follow the site's palette.
+Rotates the glyph colour through the three brand colours, using the same CSS
+variables the ripple does, so it follows the site's palette.
+
+**On by default since v1.8.0** — `brandMode: 3` (per glyph) at `brandStrength:
+0.16`, a subtle shimmer rather than a statement. Set `brandMode: 0` to turn it
+off for a given site or instance.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `brandMode` | `0` | 0 off · 1 whole field · 2 gradient sweep · 3 per glyph |
-| `brandStrength` | `0.60` | Opacity of the brand colour over the base tint (0–1) |
-| `brandSpeed` | `0.15` | How fast the cycle advances |
-| `brandSoftness` | `0.60` | Crossfade width — 0 = hard cuts, 1 = continuous blend |
-| `brandScale` | `1.00` | Gradient tightness (mode 2 only) |
-| `brandAngle` | `0.25` | Gradient direction, 0–1 = full turn (mode 2 only) |
+| `brandMode` | `3` | 0 off · 1 whole field · 2 gradient sweep · 3 per glyph |
+| `brandStrength` | `0.16` | Opacity of the brand colour over the base tint (0–1) |
+| `brandSpeed` | `0.91` | How fast the cycle advances |
+| `brandSoftness` | `0.06` | Crossfade width — 0 = hard cuts, 1 = continuous blend |
+| `brandScale` | `4.00` | Gradient tightness (mode 2 only) |
+| `brandAngle` | `0.15` | Gradient direction, 0–1 = full turn (mode 2 only) |
 
 Mode 1 makes the whole field one colour at a time. Mode 2 shows all three at
 once as a gradient drifting across the field. Mode 3 gives every glyph its own
@@ -310,7 +313,7 @@ colour and offset, so the field shimmers between all three at once.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `brightness` | `0.20` | Overall field brightness |
+| `brightness` | `0.15` | Overall field brightness |
 | `glyphGamma` | `3.60` | Glyph contrast curve |
 | `scanlineIntensity` | `1.00` | Scanline strength |
 | `glitchAmount` | `1.90` | Horizontal glitch displacement |
@@ -322,10 +325,10 @@ colour and offset, so the field shimmers between all three at once.
 | `digitSize` | `1.25` | Glyph scale within each cell |
 | `tiltStrength` | `0.40` | Device-tilt reactivity (mobile) |
 | `revealFallback` | `2500` | ms to wait for `does-ripple` before fading in anyway (0 = never) |
-| `vignette` | `0.30` | Edge darkening |
+| `vignette` | `0.00` | Edge darkening |
 | `retraceSweep` | `1.00` | CRT retrace bar |
 | `noiseDetail` | `0.35` | Fine noise detail |
-| `phosphor` | `250` | Phosphor persistence (ms), `phosphorOn` toggles |
+| `phosphor` | `560` | Phosphor persistence (ms), `phosphorOn` toggles |
 
 ---
 

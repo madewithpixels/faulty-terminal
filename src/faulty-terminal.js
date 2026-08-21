@@ -28,9 +28,9 @@ const TUNING = {
   rippleWarp: 1.00,
   impactBurst: 2.00,
   // mwp
-  mwpColorStrength: 0.47,
-  mwpDensity: 0.27,
-  mwpFlickerSpeed: 0.10,
+  mwpColorStrength: 0.65,
+  mwpDensity: 0.04,
+  mwpFlickerSpeed: 0.40,
   mwpWaveDuration: 1050,
   mwpWaveAt: 0.05,
   heartStrength: 2.00,
@@ -41,14 +41,14 @@ const TUNING = {
   // reveal safety net — ms to wait for does-ripple before fading in anyway (0 = never)
   revealFallback: 2500,
   // brand cycle
-  brandMode: 0, // 0 off · 1 whole field · 2 gradient sweep · 3 per glyph
-  brandStrength: 0.60,
-  brandSpeed: 0.15,
-  brandSoftness: 0.60,
-  brandScale: 1.00,
-  brandAngle: 0.25,
+  brandMode: 3, // 0 off · 1 whole field · 2 gradient sweep · 3 per glyph
+  brandStrength: 0.16,
+  brandSpeed: 0.91,
+  brandSoftness: 0.06,
+  brandScale: 4.00,
+  brandAngle: 0.15,
   // field
-  brightness: 0.20,
+  brightness: 0.15,
   glyphGamma: 3.60,
   scanlineIntensity: 1.00,
   glitchAmount: 1.90,
@@ -60,11 +60,11 @@ const TUNING = {
   digitSize: 1.25,
   tiltStrength: 0.40,
   // field fx
-  vignette: 0.30,
+  vignette: 0.00,
   retraceSweep: 1.00,
   noiseDetail: 0.35,
   phosphorOn: true,
-  phosphor: 250,
+  phosphor: 560,
 };
 // structural params (don't touch unless you know what you're doing)
 const DEFAULTS = {
