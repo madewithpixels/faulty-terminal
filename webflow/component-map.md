@@ -14,7 +14,7 @@ none of it has to be rediscovered. Mirrors the convention used by Webflow-Navbar
 | Library component | `Faulty Terminal BG` — `9b168756-b1d7-0528-22d6-fa06a0ebfcc1` |
 | Consuming site | `madewithpixels` — `683cced100c63d0f60a847a3` (publishes to `madewithpixels-dev.webflow.io`, no custom domain) |
 | Test page | `faulty terminal temp` — `6a7e3009d9de3588407708da` — `/faulty-terminal-temp` |
-| Older component | `Faulty Terminal BG` in madewithpixels — `101353df-810e-81f4-1f09-7469ee61b273` (7 props only — superseded by the library one) |
+| Installed copy | `Faulty Terminal BG` in madewithpixels — `bce8a9af-0b9f-54fd-fdc0-d62c64dee1a1` (the library component as installed; 2 instances: Home and /estimate) |
 
 Single-page publishing is **Enterprise-only** on madewithpixels and returns
 `Invalid parameter: pageId`. Only a full-site publish is available.
@@ -191,50 +191,33 @@ the class itself is safe either way.
 
 ---
 
-## Rollout audit — madewithpixels (2026-08-14)
+## Rollout — madewithpixels (complete 2026-08-14)
 
-Every page carrying a `.faulty-terminal`, audited via the element API. The earlier
-scan of published HTML under-reported because it matched `faulty-terminal"` with a
-trailing quote and missed every combo class — use the element API, or match
-`class="[^"]*faulty-terminal[^"]*"`.
+| Page | Setup |
+|---|---|
+| Home | `.ft-wrapper` → component instance. Ripple origin `.mwp-logo`. Interaction targets `.ft-wrapper`, adds `does-ripple`. |
+| `/estimate` | Same shape, plus a combo class on `.ft-wrapper` for that page (`position: fixed`, full-height). Ripple origin `.mwp-logo`. |
+| Project Page template + 40 portfolio pages | Plain `<div class="faulty-terminal">`, no per-instance config. **Deliberately left as-is.** |
+| `/faulty-terminal-temp` | Deleted. |
 
-| Page(s) | What's there | Config | Needs the component? |
-|---|---|---|---|
-| Home | component instance | Ripple origin `.mwp-logo` needed | **Done** |
-| `/faulty-terminal-temp` | 2 component instances | test page | debris to delete |
-| `/estimate` | hand-built div on **Body**, `faulty-terminal + --is-estimate-page` | `data-ft-opts="'rippleOriginSelector': '.mwp-logo'"` | **Yes** — see below |
-| Project Page template + 40 portfolio pages | hand-built div in `section.Project Wrapper`, `faulty-terminal + --is-100%-height` | none | **No** — leave them |
+Both live pages verified on v1.7.1: one instance each, canvas rendering, reveal
+class found on the ancestor, origin resolving.
 
-### The portfolio pages do not need swapping
+### The pattern that makes this work
+
+Page-specific styling lives on **`.ft-wrapper`**, a site-owned class, never on the
+component. The wrapper carries position/height/combo classes and is what the
+interaction targets; the component inside carries only behaviour, set through its
+properties. That survives Library renames, component swaps and reinstalls —
+all three of which broke things this week when something pointed at the
+component's own class instead.
+
+### Portfolio pages stay as plain divs
 
 A bare `<div class="faulty-terminal">` is the documented minimal integration, not
-legacy. The script finds it exactly as it finds a component instance, and these
-pages set no per-instance options at all. Swapping 41 pages would be a lot of
-Designer clicking to arrive at identical rendering.
-
-The component earns its place only where per-instance configuration is wanted.
-That is Home (ripple origin) and `/estimate` (origin, dimming, height) — nothing
-else, today.
-
-`--is-100%-height` on those divs is now a **no-op**: `height: 100%` is exactly
-what `inset: 0` already produces. Harmless, and not worth a bulk edit.
-
-### `/estimate` is the one non-trivial swap
-
-Its combo `.faulty-terminal.is-estimate-page` sets `height: 150%` and
-`opacity: 0.25`, and **a component instance cannot carry a combo class** — you
-cannot add classes to an instance root. So the styling has to move before the
-component can replace it:
-
-1. `opacity: 0.25` → set the instance's **Brightness** property instead
-   (≈ `0.05`, i.e. the 0.20 default × 0.25). This is the same "dim in the shader,
-   not in CSS" move already made on Home, and it avoids fading the background
-   colour along with the glyphs.
-2. `height: 150%` → the div currently sits directly on **Body**. Wrap it in a
-   `position: relative` div sized as wanted and put the component inside, so the
-   height lives on the parent where it belongs.
-3. Set **Ripple origin** to `.mwp-logo` to preserve the existing `data-ft-opts`.
-4. Delete the old div.
+legacy. Those pages set no per-instance options, so the component would add
+nothing but 41 pages of Designer work. The component earns its place only where
+per-instance configuration is actually wanted.
 
 ---
 
@@ -289,6 +272,13 @@ properly bound component.
 
 ## Outstanding
 
+**Nothing.** Rollout complete, both live pages verified, and the superseded 7-prop
+component (`101353df-…`) was unregistered on 2026-08-14 — it had 0 instances, so
+only the library component remains in the picker.
+
+Optional, only if it ever matters: a self-contained no-CDN edition, mirroring
+Navbar Light's two-component setup.
+
 **Resolved in v1.6.1:** the reveal no longer fails invisible — after
 `revealFallback` ms (default 2500) the field fades in and logs why. And the CDN
 loader is now generated by the build at `webflow/faulty-terminal-loader.html`,
@@ -303,18 +293,7 @@ could restart; v1.6.0's `safeQuery` wrapper removed that. Confirmed working
 2026-08-14. The earlier `rippleFadeStartTime` theory was wrong.
 
 
-1. **Remaining swaps** — `/estimate` only (see the rollout audit above). The
-   portfolio pages and project template deliberately keep plain divs. madewithpixels
-   also still holds the superseded 7-prop component
-   `101353df-810e-81f4-1f09-7469ee61b273`, now unused.
-
-
-2. **Stray instance** on `/faulty-terminal-temp` — a second component instance
-   sits directly on Body, outside the section, with all props blank. Invisible
-   (defaults to `ripple: true` with nothing adding `does-ripple`) but running a
-   full-viewport WebGL context. Safe to delete.
-
-3. **Self-contained library edition** — Navbar Light ships two components, one
+1. **Self-contained library edition** — Navbar Light ships two components, one
    self-contained and one CDN, so the library always has a build that needs no
    external request. Faulty Terminal only has the CDN edition.
 
