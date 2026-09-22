@@ -79,6 +79,16 @@ const DEFAULTS = {
   mouseReact: true,
   pageLoadAnimation: true,
   pageLoadDelay: 1500,
+  pageLoadDuration: 2000,
+  // How the field arrives. '' = derive from ripple/pageLoadAnimation (pre-1.9
+  // behaviour). 'ripple' waits for does-ripple · 'fade' fades in after
+  // pageLoadDelay over pageLoadDuration · 'instant' is at full strength on the
+  // first frame. Wins over ripple/pageLoadAnimation when set.
+  reveal: '',
+  // Paint bgColor on the container itself so there is no flash of whatever is
+  // behind it before WebGL draws its first frame. Skipped if the container
+  // already has a background of its own.
+  paintBackground: true,
   targetFPS: 60,
   ripple: true,
   rippleOriginSelector: null,
@@ -597,6 +607,16 @@ function createInstance(ctn, opts){
   const gl = renderer.gl;
   const bg = hexToRgb(bgHex, '#2b464e');
   gl.clearColor(bg[0],bg[1],bg[2],1);
+  if(opts.paintBackground!==false){
+    const cur=getComputedStyle(ctn).backgroundColor;
+    if(!cur || cur==='transparent' || /^rgba\(.*,\s*0\)$/.test(cur))
+      ctn.style.backgroundColor=`rgb(${bg.map(c=>Math.round(c*255)).join(',')})`;
+  }
+  // Resolves (and fires faulty-terminal:ready on the container) once the first
+  // frame has been drawn — hook GSAP or page reveals onto this.
+  let markReady;
+  const ready = new Promise(r=>{ markReady=r; });
+  let isReady=false;
   const geometry = new Triangle(gl);
   const tint = hexToRgb(opts.tint, '#366777');
   const mouse = {x:0.5,y:0.5};
@@ -783,6 +803,8 @@ function createInstance(ctn, opts){
     rippleStartTime=performance.now();
   }
   let pageLoadFallback=false;
+  let fadeDelay=opts.pageLoadDelay||0;
+  const fadeDuration=Math.max(0, Number(opts.pageLoadDuration)||0);
   if(opts.ripple){
     program.uniforms.uPageLoadProgress.value=0;
     program.uniforms.uUsePageLoadAnimation.value=1;
@@ -795,7 +817,9 @@ function createInstance(ctn, opts){
       // broken component. Fade in instead, so it reads as un-animated.
       if(opts.revealFallback>0) setTimeout(()=>{
         if(rippleTriggered) return;
-        pageLoadFallback=true; loadStart=0;
+        // The fallback has already waited revealFallback ms — don't stack
+        // pageLoadDelay on top of it.
+        pageLoadFallback=true; loadStart=0; fadeDelay=0;
         console.warn('[faulty-terminal] no does-ripple after '+opts.revealFallback+
           'ms — fading in without the reveal. Add the interaction, or set ripple=false.');
       }, opts.revealFallback);
@@ -866,8 +890,9 @@ function createInstance(ctn, opts){
     }
     if(opts.pageLoadAnimation && (!opts.ripple || pageLoadFallback)){
       if(loadStart===0) loadStart=t;
-      const elapsed=t-loadStart-(opts.pageLoadDelay||0);
-      program.uniforms.uPageLoadProgress.value=Math.min(Math.max(elapsed,0)/2000,1);
+      const elapsed=t-loadStart-fadeDelay;
+      program.uniforms.uPageLoadProgress.value=
+        fadeDuration>0 ? Math.min(Math.max(elapsed,0)/fadeDuration,1) : (elapsed>=0?1:0);
     }
     if(opts.mouseReact){
       smoothMouse.x+=(mouse.x-smoothMouse.x)*0.08;
@@ -899,6 +924,11 @@ function createInstance(ctn, opts){
       renderer.render({scene:mesh});
     }
     prevT=t;
+    if(!isReady){
+      isReady=true;
+      markReady(api);
+      ctn.dispatchEvent(new CustomEvent('faulty-terminal:ready',{bubbles:true,detail:{instance:api}}));
+    }
   }
   function start(){
     if(!running && onScreen && tabVisible){
@@ -974,7 +1004,8 @@ function createInstance(ctn, opts){
     rippleFadeStartTime=-1;
     mwpWaveStartTime=-1;
   }
-  return { ctn, opts, setParam, getParam, retrigger, hasRipple: opts.ripple };
+  const api = { ctn, opts, setParam, getParam, retrigger, ready, hasRipple: opts.ripple };
+  return api;
 }
 function buildDebugPanel(instances){
   if(!instances.length) return;
@@ -1330,6 +1361,22 @@ function debugRequested(){
   if(typeof location !== 'undefined' && /[?&]ft-debug\b/.test(location.search)) return true;
   return !!document.querySelector('[data-ft-debug]');
 }
+// reveal is the one-word way to say how the field arrives; it sets the older
+// ripple / pageLoadAnimation pair so the rest of the code needs no new branches.
+const REVEAL_MODES = ['ripple', 'fade', 'instant'];
+function applyReveal(opts){
+  const r = String(opts.reveal == null ? '' : opts.reveal).trim().toLowerCase();
+  if(!r) return opts;
+  if(!REVEAL_MODES.includes(r)){
+    console.warn('[faulty-terminal] reveal expects ripple | fade | instant, got:', opts.reveal);
+    return opts;
+  }
+  opts.reveal = r;
+  if(r === 'ripple'){ opts.ripple = true; }
+  else if(r === 'fade'){ opts.ripple = false; opts.pageLoadAnimation = true; }
+  else { opts.ripple = false; opts.pageLoadAnimation = false; }
+  return opts;
+}
 const instances = [];
 let panelBuilt = false;
 /**
@@ -1345,7 +1392,7 @@ function init(root){
   found.forEach(ctn => {
     if(ctn[INITED]) return;
     ctn[INITED] = true;
-    const opts = Object.assign({}, DEFAULTS, siteConfig(), parseAttrOpts(ctn));
+    const opts = applyReveal(Object.assign({}, DEFAULTS, siteConfig(), parseAttrOpts(ctn)));
     try{
       const inst = createInstance(ctn, opts);
       instances.push(inst);
