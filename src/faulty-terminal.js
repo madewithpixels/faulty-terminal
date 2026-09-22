@@ -1364,7 +1364,12 @@ function debugRequested(){
 // reveal is the one-word way to say how the field arrives; it sets the older
 // ripple / pageLoadAnimation pair so the rest of the code needs no new branches.
 const REVEAL_MODES = ['ripple', 'fade', 'instant'];
-function applyReveal(opts){
+// reveal:'fade' is chosen where nothing triggers the ripple, so it should start
+// at once. These apply unless the site set pageLoadDelay/Duration itself; the
+// legacy ripple:false path keeps the older 1500ms delay / 2000ms fade.
+const FADE_DEFAULTS = { pageLoadDelay: 0, pageLoadDuration: 1500 };
+function applyReveal(opts, overrides){
+  overrides = overrides || {};
   const r = String(opts.reveal == null ? '' : opts.reveal).trim().toLowerCase();
   if(!r) return opts;
   if(!REVEAL_MODES.includes(r)){
@@ -1373,7 +1378,10 @@ function applyReveal(opts){
   }
   opts.reveal = r;
   if(r === 'ripple'){ opts.ripple = true; }
-  else if(r === 'fade'){ opts.ripple = false; opts.pageLoadAnimation = true; }
+  else if(r === 'fade'){
+    opts.ripple = false; opts.pageLoadAnimation = true;
+    Object.keys(FADE_DEFAULTS).forEach(k => { if(!(k in overrides)) opts[k] = FADE_DEFAULTS[k]; });
+  }
   else { opts.ripple = false; opts.pageLoadAnimation = false; }
   return opts;
 }
@@ -1392,7 +1400,8 @@ function init(root){
   found.forEach(ctn => {
     if(ctn[INITED]) return;
     ctn[INITED] = true;
-    const opts = applyReveal(Object.assign({}, DEFAULTS, siteConfig(), parseAttrOpts(ctn)));
+    const overrides = Object.assign({}, siteConfig(), parseAttrOpts(ctn));
+    const opts = applyReveal(Object.assign({}, DEFAULTS, overrides), overrides);
     try{
       const inst = createInstance(ctn, opts);
       instances.push(inst);
