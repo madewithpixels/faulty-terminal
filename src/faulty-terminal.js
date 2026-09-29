@@ -102,6 +102,20 @@ const DEFAULTS = {
   autoTune: true,
   fpsLow: 24,
   fpsHigh: 30,
+  // --- paint-safe start (v1.10.0). Each one set to false restores the exact
+  // v1.9.1 behaviour for that part. ---
+  // Software WebGL (SwiftShader, llvmpipe… — headless Chrome, GPU-blocklisted
+  // machines) or no WebGL at all: skip the renderer, keep the painted
+  // background, add .ft-static to the container.
+  softwareFallback: true,
+  // While a ripple reveal is armed, draw one frame (so faulty-terminal:ready
+  // still fires) and hold the render loop until does-ripple or revealFallback.
+  deferLoop: true,
+  // For the first warmStartMs of page life run at ≤0.5 render scale and ≤30fps,
+  // then restore full quality if the device kept up. A first measurement
+  // window below fpsLow drops straight to renderScaleMin.
+  warmStart: true,
+  warmStartMs: 2000,
 };
 const SLIDERS = [
   ['rippleDuration', null, 'duration (ms)', 300, 5000, 50, 'RIPPLE'],
@@ -589,6 +603,46 @@ function safeQuery(sel){
 }
 const clamp = (v,lo,hi) => Math.min(hi,Math.max(lo,v));
 const fmt = (v,step) => step < 1 ? (+v).toFixed(2) : String(Math.round(v));
+// softwareFallback: WebGL implemented on the CPU. Lighthouse / PageSpeed and
+// Googlebot render headless with no GPU, which lands here — as does any real
+// visitor whose GPU is blocklisted, who would get a few fps at best.
+const SOFTWARE_GL_RE = /swiftshader|llvmpipe|softpipe|software|basic render/i;
+function softwareRendererName(gl){
+  if(!gl) return 'no WebGL context';
+  let name = '';
+  try{
+    name = String(gl.getParameter(gl.RENDERER) || '');
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    if(ext) name += ' | ' + String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || '');
+  }catch(e){}
+  return SOFTWARE_GL_RE.test(name) ? name : '';
+}
+let staticNoticeShown = false;
+// A static instance keeps the public instance shape; every method is a no-op.
+function createStaticInstance(ctn, opts, reason, bg){
+  ctn.classList.add('ft-static');
+  if(!staticNoticeShown){
+    staticNoticeShown = true;
+    console.info('[faulty-terminal] software WebGL (' + reason + ') — showing the static background. ' +
+      'Set softwareFallback: false to render anyway.');
+  }
+  const api = {
+    ctn, opts, static: true, hasRipple: false,
+    setParam(key, val){ opts[key] = val; },
+    getParam(key){ return opts[key]; },
+    retrigger(){},
+    ready: null,
+  };
+  api.ready = new Promise(resolve => {
+    // Async, like the animated path, so listeners added right after init() see it.
+    setTimeout(() => {
+      resolve(api);
+      ctn.dispatchEvent(new CustomEvent('faulty-terminal:ready',
+        { bubbles: true, detail: { instance: api, static: true } }));
+    }, 0);
+  });
+  return api;
+}
 function createInstance(ctn, opts){
   let bgHex = opts.bgColor;
   if(!bgHex){
@@ -603,15 +657,29 @@ function createInstance(ctn, opts){
   const rippleC0 = cssColor('--raspberry','#E84F5C');
   const rippleC1 = cssColor('--coral','#F28745');
   const rippleC2 = cssColor('--teal','#3DC096');
-  const renderer = new Renderer({ dpr: opts.dpr });
-  const gl = renderer.gl;
   const bg = hexToRgb(bgHex, '#2b464e');
-  gl.clearColor(bg[0],bg[1],bg[2],1);
-  if(opts.paintBackground!==false){
+  function paintBg(){
+    if(opts.paintBackground===false) return;
     const cur=getComputedStyle(ctn).backgroundColor;
     if(!cur || cur==='transparent' || /^rgba\(.*,\s*0\)$/.test(cur))
       ctn.style.backgroundColor=`rgb(${bg.map(c=>Math.round(c*255)).join(',')})`;
   }
+  let renderer, gl;
+  if(opts.softwareFallback!==false){
+    try{ renderer = new Renderer({ dpr: opts.dpr }); gl = renderer.gl; }
+    catch(e){ gl = null; }
+    const soft = softwareRendererName(gl);
+    if(soft){
+      try{ const lose = gl && gl.getExtension('WEBGL_lose_context'); if(lose) lose.loseContext(); }catch(e){}
+      paintBg();
+      return createStaticInstance(ctn, opts, soft, bg);
+    }
+  } else {
+    renderer = new Renderer({ dpr: opts.dpr });
+    gl = renderer.gl;
+  }
+  gl.clearColor(bg[0],bg[1],bg[2],1);
+  paintBg();
   // Resolves (and fires faulty-terminal:ready on the container) once the first
   // frame has been drawn — hook GSAP or page reveals onto this.
   let markReady;
@@ -636,6 +704,18 @@ function createInstance(ctn, opts){
   let renderScale = opts.renderScaleMax;
   const frameInterval = 1000/(opts.targetFPS||30);
   let lastFrame=0, fpsCount=0, fpsWindowStart=0;
+  // warmStart state. warmActive: capped/low-res phase in force. warmUntil is
+  // measured from init (page life), not from loop start: a loop held back by
+  // deferLoop until after it runs at full quality from its first frame.
+  const warmOn = opts.warmStart!==false;
+  let warmActive = warmOn;
+  const warmUntil = performance.now() + Math.max(0, Number(opts.warmStartMs)||0);
+  const warmFps = Math.min(30, opts.targetFPS||30);
+  // -2ms slack so a 30fps cap lands on every other vsync, not every third.
+  const warmInterval = 1000/warmFps - 2;
+  const WARM_WINDOW = 500;
+  let firstWindow = warmOn;   // next autoTune window is the first — fast back-off
+  const warmScale = () => Math.max(opts.renderScaleMin, 0.5);
   const program = new Program(gl,{
     vertex: vertexShader,
     fragment: fragmentShader,
@@ -729,7 +809,11 @@ function createInstance(ctn, opts){
     program.uniforms.iResolution.value = new Color(gl.canvas.width,gl.canvas.height,gl.canvas.width/gl.canvas.height);
     if(fbProg) makeRTs();
   }
-  function resize(){ renderScale=targetScaleForSize(ctn.offsetWidth,ctn.offsetHeight); applySize(); }
+  function resize(){
+    renderScale=targetScaleForSize(ctn.offsetWidth,ctn.offsetHeight);
+    if(warmActive) renderScale=Math.min(renderScale,warmScale());
+    applySize();
+  }
   new ResizeObserver(resize).observe(ctn);
   resize();
   if(opts.mouseReact){
@@ -801,7 +885,13 @@ function createInstance(ctn, opts){
     program.uniforms.uRippleActive.value=1;
     program.uniforms.uRippleProgress.value=0;
     rippleStartTime=performance.now();
+    releaseLoop();
   }
+  // deferLoop: true while the reveal is armed and the loop is held. start()
+  // still lets exactly one frame through so ready fires and the canvas holds
+  // a real (background) frame; releaseLoop() lets the loop run for good.
+  let deferred=false;
+  function releaseLoop(){ if(deferred){ deferred=false; start(); } }
   let pageLoadFallback=false;
   let fadeDelay=opts.pageLoadDelay||0;
   const fadeDuration=Math.max(0, Number(opts.pageLoadDuration)||0);
@@ -822,10 +912,35 @@ function createInstance(ctn, opts){
         pageLoadFallback=true; loadStart=0; fadeDelay=0;
         console.warn('[faulty-terminal] no does-ripple after '+opts.revealFallback+
           'ms — fading in without the reveal. Add the interaction, or set ripple=false.');
+        releaseLoop();
       }, opts.revealFallback);
+      deferred = opts.deferLoop!==false;
     }
   }
+  function endWarm(scale){
+    warmActive=false;
+    renderScale=clamp(Math.min(scale,targetScaleForSize(ctn.offsetWidth,ctn.offsetHeight)),opts.renderScaleMin,opts.renderScaleMax);
+    fpsCount=0; fpsWindowStart=0;
+    applySize();
+  }
+  // Warm phase: short windows so a slow device is caught inside the first
+  // second. Leaves the phase once warmUntil has passed and the device held
+  // the cap — straight back to the full v1.9.1 scale, no slow climb.
+  function warmTune(now){
+    fpsCount++;
+    if(fpsWindowStart===0) fpsWindowStart=now;
+    const span=now-fpsWindowStart;
+    if(span<WARM_WINDOW) return;
+    const fps=(fpsCount*1000)/span;
+    fpsCount=0; fpsWindowStart=now;
+    if(opts.autoTune && firstWindow && fps<opts.fpsLow){ firstWindow=false; endWarm(opts.renderScaleMin); return; }
+    firstWindow=false;
+    if(now<warmUntil) return;
+    const held = fps>=warmFps*0.9;
+    endWarm(held || !opts.autoTune ? opts.renderScaleMax : renderScale);
+  }
   function autoTune(now){
+    if(warmActive){ warmTune(now); return; }
     if(!opts.autoTune) return;
     fpsCount++;
     if(fpsWindowStart===0) fpsWindowStart=now;
@@ -834,6 +949,10 @@ function createInstance(ctn, opts){
       const fps=(fpsCount*1000)/span;
       fpsCount=0; fpsWindowStart=now;
       let changed=false;
+      if(firstWindow){
+        firstWindow=false;
+        if(fps<opts.fpsLow && renderScale>opts.renderScaleMin){ renderScale=opts.renderScaleMin; applySize(); return; }
+      }
       if(fps<opts.fpsLow && renderScale>opts.renderScaleMin){ renderScale=clamp(renderScale-0.06,opts.renderScaleMin,opts.renderScaleMax); changed=true; }
       else if(fps>opts.fpsHigh && renderScale<opts.renderScaleMax){ renderScale=clamp(renderScale+0.03,opts.renderScaleMin,opts.renderScaleMax); changed=true; }
       renderScale=Math.min(renderScale,targetScaleForSize(ctn.offsetWidth,ctn.offsetHeight));
@@ -842,7 +961,7 @@ function createInstance(ctn, opts){
   }
   function update(t){
     rafId=requestAnimationFrame(update);
-    if(t-lastFrame<frameInterval) return;
+    if(t-lastFrame<(warmActive?(lastFrame?warmInterval:0):frameInterval)) return;
     lastFrame=t;
     autoTune(t);
     if(!opts.pause) program.uniforms.iTime.value=(t*0.001+timeOffset)*opts.timeScale;
@@ -929,10 +1048,15 @@ function createInstance(ctn, opts){
       markReady(api);
       ctn.dispatchEvent(new CustomEvent('faulty-terminal:ready',{bubbles:true,detail:{instance:api}}));
     }
+    if(deferred) stop();   // deferLoop: that was the one primer frame
   }
   function start(){
+    if(deferred && isReady) return;
     if(!running && onScreen && tabVisible){
       running=true; fpsWindowStart=0; fpsCount=0;
+      // Loop first starts after the warm window (e.g. held by deferLoop):
+      // go straight to full quality; the first window still gets fast back-off.
+      if(warmActive && !deferred && performance.now()>=warmUntil) endWarm(opts.renderScaleMax);
       if(opts.ripple && rippleTriggered && program.uniforms.uRippleActive.value>0.5)
         rippleStartTime=performance.now();
       rafId=requestAnimationFrame(update);
@@ -999,6 +1123,7 @@ function createInstance(ctn, opts){
     program.uniforms.uMwpWaveEnv.value=0;
     rippleTriggered=true;
     rippleStartTime=performance.now();
+    releaseLoop();
     aftershockTriggered=false;
     aftershockStartTime=-1;
     rippleFadeStartTime=-1;
