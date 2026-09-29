@@ -111,10 +111,12 @@ const DEFAULTS = {
   // While a ripple reveal is armed, draw one frame (so faulty-terminal:ready
   // still fires) and hold the render loop until does-ripple or revealFallback.
   deferLoop: true,
+  // Opt-in (off since v1.10.1 — it softened the start of the ripple reveal and
+  // made no difference to PageSpeed, where softwareFallback does the work).
   // For the first warmStartMs of page life run at ≤0.5 render scale and ≤30fps,
   // then restore full quality if the device kept up. A first measurement
   // window below fpsLow drops straight to renderScaleMin.
-  warmStart: true,
+  warmStart: false,
   warmStartMs: 2000,
 };
 const SLIDERS = [
