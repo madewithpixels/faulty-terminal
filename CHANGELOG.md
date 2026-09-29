@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.10.1
+
+- `warmStart` is now **off by default** (opt in with `warmStart: true`). On the
+  madewithpixels hero `does-ripple` lands inside the 2s warm window, so the
+  start of the reveal rendered at half resolution. PageSpeed was unchanged
+  without it — `softwareFallback` is what fixes the Lighthouse run.
+- No other behaviour changes. Defaults now: `softwareFallback: true`,
+  `deferLoop: true`, `warmStart: false`.
+
 ## 1.10.0 — paint-safe start
 
 Keeps the terminal out of the way of the page's first paint on software WebGL
