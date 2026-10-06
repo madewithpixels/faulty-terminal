@@ -7,7 +7,7 @@ circular ripple reveal.
 Served from jsDelivr as a single versioned script — one tag per page, no
 pasted code to keep in sync across sites.
 
-Built by [madewithpixels](https://madewithpixels.com).
+Built by [madewithpixels](https://madewithpixels.co.uk).
 
 ---
 
