@@ -133,16 +133,16 @@ const DEFAULTS = {
   logoPitch: 18,            // logo pixel pitch, CSS px (site passes device-px-exact values)
   logoSize: 16,             // logo pixel size, CSS px
   logoPixelsPerCell: 2,     // logo pixels per glyph, each way (1 or 2)
-  logoSpread: 0.41,         // pixel stagger of the resolve (4×4 ordered)
+  logoSpread: 0.31,         // pixel stagger of the resolve (4×4 ordered)
   logoSlot: 0.53,           // pixel size before the degauss, fraction of final
-  degaussAmp: 1.8,          // degauss strength
-  degaussDecay: 11,         // degauss settle speed
+  degaussAmp: 2,            // degauss strength
+  degaussDecay: 6.5,        // degauss settle speed
   // resolveLogo() timeline, ms (approved 30 Oct 2026)
-  logoFieldMs: 500,         // field fade-in
-  logoHoldMs: 250,          // hold before the resolve starts
-  logoResolveMs: 1200,      // resolve progress 0→1
-  degaussOffset: -420,      // degauss starts this long after the resolve ends (negative = before)
-  degaussMs: 1550,          // degauss progress 0→1
+  logoFieldMs: 550,         // field fade-in
+  logoHoldMs: 0,            // hold before the resolve starts
+  logoResolveMs: 400,       // resolve progress 0→1
+  degaussOffset: -70,       // degauss starts this long after the resolve ends (negative = before)
+  degaussMs: 380,           // degauss progress 0→1
   logoHandOffset: -140,     // hand-off this long after the degauss ends (negative = before)
   // Render at renderScaleMax with autoTune paused from the start of the
   // resolve until the hand-off (uneven pixel columns below full scale).
@@ -155,10 +155,10 @@ const DEFAULTS = {
   logoRipple: false,
   logoPixels: null,         // selector for the lit pixels, in grid order (default: the heart mask's cells)
   logoFlareMs: 350,         // flare length per pixel
-  logoFlareSpread: 500,     // flare stagger across the pixels
-  logoRippleAt: 60,         // ripple, ms after the hand-off
-  logoFlareIntensity: 1.6,  // flare peak brightness above normal (1.6 = ×2.6)
-  logoFlareBlur: 14,        // flare glow radius at its peak, px
+  logoFlareSpread: 220,     // flare stagger across the pixels
+  logoRippleAt: 30,         // ripple, ms after the hand-off
+  logoFlareIntensity: 0.65, // flare peak brightness above normal (0.65 = ×1.65)
+  logoFlareBlur: 22,        // flare glow radius at its peak, px
   // false: the ripple ring pulses (brightness, colour, warp) over a field that
   // is already showing, without the reveal front hiding glyphs or letters.
   rippleGate: true,
@@ -1948,11 +1948,25 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
       LOGO_KNOBS.forEach(([key])=>{ out+=`  ${key}: ${+(+inst().getParam(key)).toFixed(3)},\n`; });
       out+='};';
     }
-    navigator.clipboard.writeText(out).catch(()=>console.log(out));
-    const btn=panel.querySelector('#ft-copy');
-    const orig=btn.textContent;
-    btn.textContent='✓ copied!';
-    setTimeout(()=>btn.textContent=orig,1500);
+    // Copy from the window that holds the panel: when it is popped out, the
+    // page isn't focused and its clipboard refuses the write.
+    const btn=panel.querySelector('#ft-copy'), orig='⎘ copy values';
+    const doc=panel.ownerDocument, win=doc.defaultView||window;
+    const done=ok=>{ btn.textContent=ok?'✓ copied!':'✗ not copied, see console'; setTimeout(()=>btn.textContent=orig,1800); };
+    const fallback=()=>{
+      let ok=false;
+      try{
+        const ta=doc.createElement('textarea'); ta.value=out;
+        ta.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;';
+        panel.appendChild(ta); ta.focus(); ta.select(); ok=doc.execCommand('copy'); ta.remove();
+      }catch(e){ ok=false; }
+      if(!ok) console.log(out);
+      done(ok);
+    };
+    try{
+      const cb=win.navigator && win.navigator.clipboard;
+      if(cb && cb.writeText) cb.writeText(out).then(()=>done(true), fallback); else fallback();
+    }catch(e){ fallback(); }
   });
   function setOpen(open){
     panel.classList.toggle('ft-hidden', !open);
@@ -2061,7 +2075,7 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
   }
   panel.querySelector('.ft-win').addEventListener('click',e=>{
     const b=e.target.closest('button'); if(!b) return;
-    if(b.id==='ft-pop') return popWin ? popWin.close() : popOut();
+    if(b.id==='ft-pop') return popWin ? popWin.close() : popOut(e.shiftKey);
     setMode(b.getAttribute('data-mode'));
   });
   const head=panel.querySelector('#ft-dbh');
@@ -2076,39 +2090,71 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
     const up=()=>{ head.removeEventListener('pointermove',move); head.removeEventListener('pointerup',up); panel.classList.remove('ft-dragging'); saveStore(); };
     head.addEventListener('pointermove',move); head.addEventListener('pointerup',up);
   });
-  // Pop out: Document Picture-in-Picture (Chrome/Edge) gives an always-on-top
-  // window you can drag anywhere, outside the browser too; elsewhere, a popup.
-  async function popOut(){
+  // Pop out: a named popup window you can drag anywhere, outside the browser
+  // too. It survives reloads and page changes: the old page leaves it open
+  // with a "reconnecting" note, and the next page with a terminal finds it by
+  // name (no click needed for an existing window) and moves its panel in.
+  // Shift-click ⧉ for Document Picture-in-Picture instead (Chrome/Edge):
+  // always on top, but the browser closes it on every reload.
+  const POP_NAME='ft-debug-panel', POP_FLAG='ft-debug-popped';
+  const popFlag=v=>{ try{ v ? sessionStorage.setItem(POP_FLAG,'1') : sessionStorage.removeItem(POP_FLAG); }catch(e){} };
+  let popPip=false;
+  async function popOut(pip){
     let w=null;
     const h=Math.min(1000,(screen.availHeight||900)-80);
-    try{
-      if(window.documentPictureInPicture) w=await window.documentPictureInPicture.requestWindow({ width:400, height:h });
-    }catch(e){ w=null; }
-    if(!w) w=window.open('', 'ft-debug', 'popup,width=400,height='+h);
-    if(!w) return;
+    if(pip){
+      try{ if(window.documentPictureInPicture) w=await window.documentPictureInPicture.requestWindow({ width:400, height:h }); }catch(e){ w=null; }
+    }
+    popPip=!!w;
+    if(!w) w=window.open('', POP_NAME, 'popup,width=400,height='+h);
+    if(w) attachPop(w);
+  }
+  function attachPop(w){
+    let d;
+    try{ d=w.document; d.body; }catch(e){ return false; } // window went cross-origin
     popWin=w;
-    const d=w.document;
     d.title='ft debug';
-    const st=document.getElementById('ft-debug-styles');
-    d.head.appendChild(st.cloneNode(true));
+    d.querySelectorAll('#ft-debug-styles').forEach(n=>n.remove());
+    d.head.appendChild(document.getElementById('ft-debug-styles').cloneNode(true));
+    d.body.innerHTML='';
     d.body.style.cssText='margin:0;background:#080c10;';
     panel.classList.remove('ft-hidden');
     panel.classList.add('ft-popped');
     d.body.appendChild(panel);
     panel.querySelector('#ft-pop').setAttribute('aria-pressed','true');
     panel.querySelector('#ft-pop').title='Back into the page';
+    if(!popPip) popFlag(true);
     const back=()=>{
-      if(!popWin) return;
-      popWin=null;
+      if(popWin!==w) return;
+      popWin=null; popFlag(false);
       panel.classList.remove('ft-popped');
       document.body.appendChild(panel);
       panel.querySelector('#ft-pop').setAttribute('aria-pressed','false');
-      panel.querySelector('#ft-pop').title='Pop out into its own window';
-      setMode(store.mode); tickLogo();
+      panel.querySelector('#ft-pop').title='Pop out into its own window (shift-click: always on top, closes on reload)';
+      setMode(store.mode); setOpen(true);
     };
     w.addEventListener('pagehide', back);
     const iv=setInterval(()=>{ if(w.closed){ clearInterval(iv); back(); } }, 500);
     tickLogo();
+    return true;
+  }
+  // This page is going away (reload / navigation): leave the popup open for the next page.
+  window.addEventListener('pagehide',()=>{
+    if(!popWin || popPip) return;
+    try{
+      const d=popWin.document;
+      d.body.innerHTML='<div style="font:12px/1.5 ui-monospace,Menlo,monospace;color:#7fa;padding:16px;">ft debug · reconnecting…<br><span style="color:#577">The panel comes back when a page with a terminal loads. Close this window to stop popping out.</span></div>';
+    }catch(e){}
+  });
+  function reattachPop(){
+    let flag=null; try{ flag=sessionStorage.getItem(POP_FLAG); }catch(e){}
+    if(!flag) return false;
+    let w=null;
+    try{ w=window.open('', POP_NAME); }catch(e){ w=null; } // finds the open window; blocked (null) if it was closed
+    if(!w || w.closed){ popFlag(false); return false; }
+    popPip=false;
+    if(attachPop(w)) return true;
+    popFlag(false); return false;
   }
   const keep=panel.querySelector('#ft-keep');
   keep.checked=!!store.keep;
@@ -2120,16 +2166,17 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
   setMode(store.mode||'float');
   loadInst(0);
   setOpen(!!(store.keep && store.open));
+  reattachPop();
 }
 // Debug panel controls for the logo timeline: key, label, min, max, step.
 const LOGO_KNOBS = [
   ['logoFieldMs', 'field fade-in', 200, 2500, 50],
   ['logoHoldMs', 'hold', 0, 1500, 50],
-  ['logoResolveMs', 'resolve', 400, 4000, 50],
+  ['logoResolveMs', 'resolve', 100, 4000, 50],
   ['logoSpread', 'pixel stagger', 0, 0.5, 0.01],
   ['degaussOffset', 'degauss vs fill', -1500, 800, 10],
   ['degaussMs', 'degauss length', 150, 2000, 10],
-  ['degaussAmp', 'degauss amp', 0, 2, 0.05],
+  ['degaussAmp', 'degauss amp', 0, 4, 0.05],
   ['degaussDecay', 'degauss settle', 1, 12, 0.25],
   ['logoSlot', 'pre-degauss size', 0.5, 1, 0.01],
   ['logoHandOffset', 'hand-off vs end', -800, 600, 10],

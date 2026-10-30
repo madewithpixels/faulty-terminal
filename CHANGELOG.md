@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.12.1 — pop-out survives reloads
+
+- The debug panel's pop-out (⧉) is now an ordinary popup window, so it stays
+  open when the page reloads or you move to another page. The next page with a
+  terminal reconnects to it without a click, and in the meantime it shows
+  "reconnecting…". Closing the window puts the panel back in the page.
+- Shift-click ⧉ for the 1.12.0 behaviour: a Picture-in-Picture window (Chrome,
+  Edge) that stays on top of everything but closes on every reload, because
+  the browser ties it to the page that opened it.
+- **New logo resolve defaults** (tuned in the panel, 30 Oct 2026): a much
+  quicker resolve. Field fade-in 550, hold 0, resolve 400, pixel stagger 0.31,
+  degauss vs fill −70, degauss length 380, degauss amp 2, degauss settle 6.5,
+  hand-off vs end −140 (as before), flare stagger 220, flare intensity 0.65,
+  flare blur 22, ripple 30 ms after the hand-off. Hand-off now lands about
+  1.1 s after `resolveLogo()` (was 2.9 s).
+- **Copy values works when the panel is popped out.** It now copies from the
+  window that holds the panel (with a fallback), and says so when it can't.
+- Wider ranges for the resolve (from 100 ms) and degauss amp (up to 4).
+- With the logo options off, frames are unchanged from 1.12.0.
+
 ## 1.12.0 — logo timeline in the debug panel
 
 - **Debug panel window.** Dock it left or right at full height, float and drag
