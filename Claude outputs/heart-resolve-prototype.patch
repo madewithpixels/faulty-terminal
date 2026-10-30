@@ -1,0 +1,204 @@
+diff --git a/src/faulty-terminal.js b/src/faulty-terminal.js
+index e00c95c..08615b6 100644
+--- a/src/faulty-terminal.js
++++ b/src/faulty-terminal.js
+@@ -240,6 +240,20 @@ uniform float uHeartScale;
+ uniform float uHeartFalloff;
+ uniform float uMwpLegible;
+ uniform float uMwpGlitch;
++uniform vec2  uGridShift;
++uniform float uRippleGate;
++uniform float uLogoOn;
++uniform float uLogoP;
++uniform float uLogoPPC;
++uniform vec2  uLogoOrigin;
++uniform float uLogoCellPx;
++uniform float uLogoPitch;
++uniform float uLogoSize;
++uniform float uLogoD;
++uniform float uLogoSpread;
++uniform float uDegAmp;
++uniform float uDegDecay;
++uniform float uSlotScale;
+ float time;
+ float hash21(vec2 p){ p = fract(p * 234.56); p += dot(p, p + 34.56); return fract(p.x * p.y); }
+ float ringWobble(vec2 dh){
+@@ -366,6 +380,7 @@ r = vec2(fbm(rot1 * q + o0), fbm(q + o0));
+ return fbm(p + r);
+ }
+ float digit(vec2 p){
++p += uGridShift;
+ vec2 grid = uGridMul * 15.0;
+ vec2 s = floor(p * grid) / grid;
+ p = p * grid;
+@@ -387,7 +402,7 @@ float dist = length(dh);
+ float radius = uRippleProgress * 2.5 * ringWobble(dh);
+ float buildHash = hash21(s * 43.7 + vec2(1.23, 4.56));
+ float edge = radius - dist;
+-loadFactor = smoothstep(-0.05 - buildHash * 0.35, 0.25, edge);
++loadFactor = mix(1.0, smoothstep(-0.05 - buildHash * 0.35, 0.25, edge), uRippleGate);
+ intensity *= loadFactor;
+ float ringBoost = step(0.0, edge)
+ * smoothstep(uRippleBrightnessFalloff, 0.0, edge)
+@@ -462,6 +477,111 @@ vec3 a = i < 0.5 ? uRippleColor0 : (i < 1.5 ? uRippleColor1 : uRippleColor2);
+ vec3 b = i < 0.5 ? uRippleColor1 : (i < 1.5 ? uRippleColor2 : uRippleColor0);
+ return mix(a, b, w);
+ }
++
++// ---- PROTOTYPE: logo resolve -------------------------------------------
++float bayer4(vec2 c){
++  vec2 a = mod(floor(c), 4.0);
++  float x = a.x, y = a.y;
++  float b = mod(x,2.0)*2.0 + mod(y,2.0)*3.0 - 2.0*mod(x,2.0)*mod(y,2.0); // 0,2,3,1
++  float b2 = mod(floor(x/2.0),2.0)*2.0 + mod(floor(y/2.0),2.0)*3.0 - 2.0*mod(floor(x/2.0),2.0)*mod(floor(y/2.0),2.0);
++  return (b*4.0 + b2) / 16.0;
++}
++float heartCode(float col, float row){
++  if(col < 0.0 || col > 8.0 || row < 0.0 || row > 6.0) return 0.0;
++  vec2 m = heartRowMasks(row);
++  return mod(floor(m.x / exp2(col) + 0.01), 2.0) + mod(floor(m.y / exp2(col) + 0.01), 2.0) * 2.0;
++}
++vec3 codeColor(float code){
++  return code > 2.5 ? uRippleColor1 : (code > 1.5 ? uRippleColor2 : uRippleColor0);
++}
++float rboxCov(vec2 p, vec2 a, vec2 b, float r, float aa){
++  vec2 c = (a + b) * 0.5; vec2 h = max((b - a) * 0.5, vec2(0.0));
++  r = min(r, min(h.x, h.y));
++  vec2 q = abs(p - c) - h + r;
++  float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
++  return 1.0 - smoothstep(-aa, aa, d);
++}
++float pixQ(float col, float row){
++  float spread = uLogoSpread;
++  float d = bayer4(vec2(col, row)) * spread + hash21(vec2(col, row) * 3.7) * 0.03;
++  return clamp((uLogoP - d) / max(1.0 - spread - 0.03, 0.05), 0.0, 1.0);
++}
++vec3 logoPass(vec2 pf, vec3 fieldCol){
++  vec2 grid = uGridMul * 15.0;
++  vec2 g = pf * grid; vec2 o = uLogoOrigin * grid;
++  vec2 cd = vec2(g.x - o.x, o.y - g.y);           // cell units, y down from heart top
++  float ppc = uLogoPPC;
++  float lGap = uLogoPitch - uLogoSize;
++  float cellsW = ceil((9.0 * uLogoPitch - lGap) / uLogoCellPx), cellsH = ceil((7.0 * uLogoPitch) / uLogoCellPx);
++  if(cd.x < 0.0 || cd.y < 0.0 || cd.x >= cellsW || cd.y >= cellsH) return fieldCol;
++  vec2 cell = floor(cd); vec2 lc = cd - cell;
++  float pxU = 1.0 / uLogoCellPx;                   // one CSS px in cell units
++  float anyH = 0.0, qSum = 0.0;
++  for(int a = 0; a < 2; a++) for(int b = 0; b < 2; b++){
++    if(float(a) < ppc && float(b) < ppc){
++      float cc = cell.x * ppc + float(a), rr = cell.y * ppc + float(b);
++      if(heartCode(cc, rr) > 0.5){ anyH += 1.0; qSum += pixQ(cc, rr); }
++    }
++  }
++  if(anyH < 0.5) return fieldCol;
++  float qCell = qSum / anyH;
++  float jx = clamp(floor(lc.x * uLogoCellPx / uLogoPitch), 0.0, ppc - 1.0);
++  float jy = clamp(floor((lc.y * uLogoCellPx - lGap) / uLogoPitch), 0.0, ppc - 1.0);
++  float col = cell.x * ppc + jx, row = cell.y * ppc + jy;
++  float code = heartCode(col, row);
++  float isH = step(0.5, code);
++  float q = isH > 0.5 ? pixQ(col, row) : qCell;
++  float lock   = smoothstep(0.0, 0.20, q);
++  float on     = smoothstep(0.15, 0.55, q);
++  float fill   = smoothstep(0.50, 0.90, q);
++  float colT   = smoothstep(0.30, 1.00, q);
++  // degauss on its own clock (uLogoD 0..1): a damped wobble for the whole heart
++  float dt   = clamp(uLogoD, 0.0, 1.0);
++  float dEnv = exp(-uDegDecay * dt) * (1.0 - dt) * step(0.0001, dt) * uDegAmp;
++  float osc  = mix(1.0, cos(dt * 3.14159 * 4.5), clamp(uDegAmp, 0.0, 1.0));
++  float morph = dt <= 0.0 ? 0.0 : clamp(1.0 - exp(-uDegDecay * 1.5 * dt) * osc * (1.0 - dt), 0.0, 1.6);
++  float hy = cell.y * ppc + lc.y * ppc;
++  float hx = cell.x * ppc + lc.x * ppc;
++  lc.x += sin(hy * 1.7 - dt * 26.0) * dEnv * 3.0 * pxU;
++  lc.y += sin(hx * 1.3 + dt * 19.0) * dEnv * 1.5 * pxU;
++  // final box on the even logo grid, and the slot it starts from (same centre, smaller)
++  vec2 tMin = vec2(jx * uLogoPitch, lGap + jy * uLogoPitch) * pxU;
++  vec2 tMax = tMin + uLogoSize * pxU;
++  vec2 tc = (tMin + tMax) * 0.5, th = (tMax - tMin) * 0.5;
++  vec2 sMin = tc - th * uSlotScale, sMax = tc + th * uSlotScale;
++  vec2 mn = mix(sMin, tMin, morph), mx = mix(sMax, tMax, morph);
++  // dots: heart pixels get a 3x3 matrix inside their slot (field-sized dots, even grid);
++  // non-heart quarters keep the field's own 5x5 glyph while they fade away
++  vec2 u = (lc - sMin) / max(sMax - sMin, vec2(1e-4));
++  float px5 = lc.x * uDigitSize * 5.0;
++  float py5 = (lc.y - (1.0 - 1.0 / uDigitSize)) * uDigitSize * 5.0;
++  float pxN = isH > 0.5 ? u.x * 3.0 : px5;
++  float pyN = isH > 0.5 ? u.y * 3.0 : py5;
++  float nMax = isH > 0.5 ? 2.0 : 4.0;
++  float j = floor(pxN), i = floor(pyN);
++  float x = fract(pxN), y = fract(pyN);
++  float inGlyph = step(0.0, j) * step(j, nMax) * step(0.0, i) * step(i, nMax);
++  float tick = floor(iTime * 9.0);
++  float lit = step(hash21(vec2(col, row) * 5.17 + cell * 7.13 + vec2(i, j) * 1.31 + vec2(tick * 0.37, tick * 0.11)), mix(0.35, 1.0, on));
++  float dotB = mix((0.2 + y * 0.8) * (0.75 + x * 0.25), 1.0, fill) * lit * inGlyph;
++  float rad = 3.0 * pxU * mix(fill * 0.5, 1.0, clamp(morph, 0.0, 1.0)), aa = 0.8 * pxU;
++  vec2 ca = vec2(cos(dt * 31.0), sin(dt * 23.0)) * dEnv * 4.0 * pxU;
++  float covR = rboxCov(lc + ca, mn, mx, rad, aa);
++  float covG = rboxCov(lc, mn, mx, rad, aa);
++  float covB = rboxCov(lc - ca, mn, mx, rad, aa);
++  float inSub = step(sMin.x, lc.x) * step(lc.x, sMax.x) * step(sMin.y, lc.y) * step(lc.y, sMax.y);
++  vec3 shape = mix(vec3(dotB * inSub), vec3(covR, covG, covB), fill);
++  vec3 dimC = uTint * 1.7;
++  vec3 brand = codeColor(code);
++  vec3 nb = codeColor(code > 2.5 ? 2.0 : (code > 1.5 ? 1.0 : 3.0));
++  brand = mix(brand, nb, clamp(sin(dt * 17.0 + hx * 0.6) * dEnv * 0.9, 0.0, 1.0));
++  float lev = mix(0.22, 1.0, colT);
++  vec3 tgt = mix(dimC, brand, colT);
++  vec3 mine = uBgColor + (tgt - uBgColor) * shape * lev;
++  vec3 empty = mix(uBgColor, dimC, dotB * 0.22 * (1.0 - on));
++  vec3 res = isH > 0.5 ? mine : empty;
++  return mix(fieldCol, res, lock);
++}
+ void main(){
+ time = iTime * 0.333333;
+ vec2 uv = vUv;
+@@ -555,8 +675,9 @@ col = mix(col, ascreened, blend);
+ col = clamp(col, 0.0, 1.0);
+ }
+ vec2 grid_c = uGridMul * 15.0;
+-vec2 s_c = floor(p * grid_c) / grid_c;
+-vec2 pc = fract(p * grid_c) * uDigitSize;
++vec2 pS = p + uGridShift;
++vec2 s_c = floor(pS * grid_c) / grid_c;
++vec2 pc = fract(pS * grid_c) * uDigitSize;
+ float ic = floor((1.0 - pc.y) * 5.0) - 2.0;
+ float jc = floor(pc.x * 5.0) - 2.0;
+ float ch = hash21(s_c * 71.3 + vec2(5.3, 2.7));
+@@ -576,6 +697,7 @@ vec3 mwpCol = vec3(0.91,0.31,0.36)*ms
+ mwpCol = mix(mwpCol, stamp.rgb, clamp(stamp.w * 1.5, 0.0, 1.0));
+ col = mix(col, mix(uBgColor, mwpCol, blend),
+ clamp(scEff * cp * (uMwpColorStrength + stamp.w * uHeartStrength), 0.0, 1.0));
++if(uLogoOn > 0.5) col = logoPass(p + uGridShift, col);
+ if(uVignette > 0.001){
+ vec2 vq = vUv - 0.5;
+ col *= 1.0 - dot(vq, vq) * uVignette * 1.3;
+@@ -781,6 +903,20 @@ function createInstance(ctn, opts){
+       uHeartFalloff:{value:opts.heartFalloff??0.8},
+       uMwpLegible:{value:opts.mwpLegible??0.22},
+       uMwpGlitch:{value:opts.mwpGlitch??0.5},
++      uGridShift:{value:new Float32Array([0,0])},
++      uRippleGate:{value:1},
++      uLogoOn:{value:0},
++      uLogoP:{value:0},
++      uLogoPPC:{value:1},
++      uLogoOrigin:{value:new Float32Array([0,0])},
++      uLogoCellPx:{value:18},
++      uLogoPitch:{value:18},
++      uLogoSize:{value:16},
++      uLogoD:{value:0},
++      uLogoSpread:{value:0.2},
++      uDegAmp:{value:1},
++      uDegDecay:{value:4},
++      uSlotScale:{value:0.9},
+     }
+   });
+   const mesh = new Mesh(gl,{geometry,program});
+@@ -1131,7 +1267,7 @@ function createInstance(ctn, opts){
+     rippleFadeStartTime=-1;
+     mwpWaveStartTime=-1;
+   }
+-  const api = { ctn, opts, setParam, getParam, retrigger, ready, hasRipple: opts.ripple };
++  const api = { ctn, opts, setParam, getParam, retrigger, ready, hasRipple: opts.ripple, program };
+   return api;
+ }
+ function buildDebugPanel(instances){
