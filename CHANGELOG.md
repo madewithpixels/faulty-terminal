@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.12.1 — pop-out survives reloads
+
+- The debug panel's pop-out (⧉) is now an ordinary popup window, so it stays
+  open when the page reloads or you move to another page. The next page with a
+  terminal reconnects to it without a click, and in the meantime it shows
+  "reconnecting…". Closing the window puts the panel back in the page.
+- Shift-click ⧉ for the 1.12.0 behaviour: a Picture-in-Picture window (Chrome,
+  Edge) that stays on top of everything but closes on every reload, because
+  the browser ties it to the page that opened it.
+- Panel only; rendering is unchanged from 1.12.0.
+
 ## 1.12.0 — logo timeline in the debug panel
 
 - **Debug panel window.** Dock it left or right at full height, float and drag
