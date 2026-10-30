@@ -147,6 +147,18 @@ const DEFAULTS = {
   // Render at renderScaleMax with autoTune paused from the start of the
   // resolve until the hand-off (uneven pixel columns below full scale).
   logoFullScale: true,
+  // v1.12.0: faulty-terminal also runs the hand-off. logoFlare hides the logo
+  // element until the hand-off and flares its pixels (4x4 ordered stagger);
+  // logoRipple fires the ripple logoRippleAt ms after the hand-off. Off = the
+  // site does both, as in v1.11.0.
+  logoFlare: false,
+  logoRipple: false,
+  logoPixels: null,         // selector for the lit pixels, in grid order (default: the heart mask's cells)
+  logoFlareMs: 350,         // flare length per pixel
+  logoFlareSpread: 500,     // flare stagger across the pixels
+  logoRippleAt: 60,         // ripple, ms after the hand-off
+  logoFlareIntensity: 1.6,  // flare peak brightness above normal (1.6 = ×2.6)
+  logoFlareBlur: 14,        // flare glow radius at its peak, px
   // false: the ripple ring pulses (brightness, colour, warp) over a field that
   // is already showing, without the reveal front hiding glyphs or letters.
   rippleGate: true,
@@ -787,6 +799,14 @@ function barrelUv(u, v, k){
 // The tilt transform scales the canvas by 1.06 about its centre.
 const TILT_SCALE = 1.06;
 // setParam keys for the v1.11.0 uniforms (only present when compiled in).
+// Logo-resolve options the debug panel may change live.
+const LOGO_OPTION_KEYS = { logoFieldMs:1, logoHoldMs:1, logoResolveMs:1, logoSpread:1, degaussOffset:1,
+  degaussMs:1, degaussAmp:1, degaussDecay:1, logoSlot:1, logoHandOffset:1, logoFlareMs:1,
+  logoFlareSpread:1, logoRippleAt:1, logoFlareIntensity:1, logoFlareBlur:1 };
+function safeQueryAll(root, sel){
+  try{ return [].slice.call(root.querySelectorAll(sel)); }
+  catch(e){ console.warn('[faulty-terminal] ignoring invalid selector:', sel); return null; }
+}
 const FEATURE_PARAMS = { rippleGate: 'uRippleGate', logoSpread: 'uLogoSpread', logoSlot: 'uSlotScale',
   degaussAmp: 'uDegAmp', degaussDecay: 'uDegDecay' };
 const HEX_RE = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -1218,7 +1238,7 @@ function createInstance(ctn, opts){
   }
   // Logo resolve state. logoActive: the shader heart is on screen (between the
   // first setLogoProgress > 0 and the hand-off).
-  let logoActive=false, logoHidden=false, logoTimeline=null, logoHandoffPending=false;
+  let logoActive=false, logoHidden=false, logoHandoffPending=false;
   let logoPromise=null, logoResolveFn=null, logoWarned=false;
   function logoAvailable(){
     if(logoOn) return true;
@@ -1259,49 +1279,155 @@ function createInstance(ctn, opts){
     const done=logoResolveFn; logoResolveFn=null; logoPromise=null;
     if(done) done(detail);
   }
+  // The logo timeline (v1.12.0): one seekable clock, in ms from the start of
+  // the field fade. resolveLogo() plays it; the debug panel can pause, scrub
+  // and replay it. With logoFlare / logoRipple on, faulty-terminal also hides
+  // and flares the site's logo element and fires the ripple, so the whole
+  // sequence is on one clock and every timing is tweakable from the panel.
+  const LT={ S:null, e:0, base:0, tStart:-1, speed:1, playing:false, handed:false, rippled:false,
+    ghost:false, startedAt:0, pixels:null, vis:null, op:null };
+  const LOGO_TIMING_KEYS={ fieldMs:'logoFieldMs', holdMs:'logoHoldMs', resolveMs:'logoResolveMs',
+    degOffset:'degaussOffset', degMs:'degaussMs', handOffset:'logoHandOffset', spread:'logoSpread',
+    degAmp:'degaussAmp', degDecay:'degaussDecay', slot:'logoSlot', flareMs:'logoFlareMs',
+    flareSpread:'logoFlareSpread', rippleAt:'logoRippleAt' };
+  function logoTimings(){
+    const T={};
+    Object.keys(LOGO_TIMING_KEYS).forEach(k=>{ T[k]=Number(opts[LOGO_TIMING_KEYS[k]])||0; });
+    return T;
+  }
+  function logoSchedule(T){
+    const f1=Math.max(0,T.fieldMs), r0=f1+Math.max(0,T.holdMs), rMs=Math.max(1,T.resolveMs), r1=r0+rMs;
+    const d0=r1+T.degOffset, dMs=Math.max(1,T.degMs), d1=d0+dMs;
+    const h=Math.max(r0, d1+T.handOffset);
+    const fx=Math.max(1,T.flareMs), fs=Math.max(0,T.flareSpread);
+    const x1=h+fx+fs, rp=Math.max(h, h+T.rippleAt);
+    return { f1, r0, rMs, r1, d0, dMs, d1, h, fx, fs, x1, rp, done:Math.max(x1, rp) };
+  }
+  const BAYER4=[0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];
+  const isClear=c=>!c || c==='transparent' || /rgba?\([^)]*,\s*0\)$/.test(c.replace(/\s+/g,' '));
+  // The logo element's lit pixels: grid children at the heart mask's cells (or
+  // logoPixels, if set), each the first descendant that carries a colour.
+  function logoPixels(){
+    if(LT.pixels) return LT.pixels;
+    const out=[];
+    if(!gridEl) return out;
+    const sel=opts.logoPixels ? safeQueryAll(gridEl, opts.logoPixels) : null;
+    const masks=[[6,192],[95,496],[95,500],[95,500],[30,244],[24,56],[0,32]];
+    const kids=sel || [].slice.call(gridEl.children);
+    kids.forEach((c,i)=>{
+      const col=i%9, row=Math.floor(i/9);
+      if(!sel && (row>6 || !(((masks[row][0]|masks[row][1])>>col)&1))) return;
+      let t=c;
+      if(isClear(getComputedStyle(c).backgroundColor)){
+        t=[].find.call(c.querySelectorAll('*'), x=>!isClear(getComputedStyle(x).backgroundColor)) || c;
+      }
+      out.push({ el:t, b:BAYER4[(row%4)*4+col%4]/16, glow:null, f:'' });
+    });
+    return (LT.pixels=out);
+  }
+  function setLogoEl(vis, op){
+    if(!gridEl) return;
+    if(vis!==LT.vis){ LT.vis=vis; gridEl.style.visibility=vis; }
+    if(op!==LT.op){ LT.op=op; gridEl.style.opacity=op; }
+  }
+  function logoRender(){
+    const S=LT.S, e=LT.e, u=program.uniforms;
+    setFieldProgress(S.f1>0 ? e/S.f1 : 1);
+    u.uLogoP.value=clamp((e-S.r0)/S.rMs,0,1);
+    u.uLogoD.value=clamp((e-S.d0)/S.dMs,0,1);
+    const handed=e>=S.h, active=!handed && e>S.r0;
+    u.uLogoOn.value=active?1:0;
+    logoHidden=handed;
+    if(active!==logoActive){
+      logoActive=active;
+      if(opts.logoFullScale!==false) holdFullScale(active);
+    }
+    if(!opts.logoFlare) return;
+    setLogoEl(handed||LT.ghost ? '' : 'hidden', !handed&&LT.ghost ? '0.45' : '');
+    const ft=e-S.h;
+    logoPixels().forEach(p=>{
+      let f='';
+      const t=(ft-p.b*S.fs)/S.fx;
+      if(handed && t>=0 && t<1){
+        if(!p.glow) p.glow=getComputedStyle(p.el).backgroundColor;
+        const k=Math.exp(-t*S.fx/180);
+        const bi=Math.max(0,Number(opts.logoFlareIntensity)||0), br=Math.max(0,Number(opts.logoFlareBlur)||0);
+        f='brightness('+(1+bi*k).toFixed(3)+')'+(br>0?' drop-shadow(0 0 '+(br*k).toFixed(1)+'px '+p.glow+')':'');
+      }
+      if(f!==p.f){ p.f=f; p.el.style.filter=f; }
+    });
+  }
+  function stepLogo(t){
+    if(LT.tStart<0) LT.tStart=t;
+    LT.e=LT.base+(t-LT.tStart)*LT.speed;
+    const S=LT.S;
+    logoRender();
+    if(!LT.handed && LT.e>=S.h){ LT.handed=true; logoHandoffPending=true; }   // event fires once this frame is drawn
+    if(opts.logoRipple && !LT.rippled && LT.e>=S.rp){ LT.rippled=true; retrigger(); }
+    if(LT.e>=S.done){ LT.playing=false; LT.e=S.done; LT.base=LT.e; LT.tStart=-1; }
+  }
+  function logoPlay(){
+    LT.S=logoSchedule(logoTimings());
+    LT.e=0; LT.base=0; LT.tStart=-1; LT.handed=false; LT.rippled=false; LT.playing=true;
+    LT.startedAt=performance.now();
+    const u=program.uniforms;
+    u.uLogoSpread.value=opts.logoSpread; u.uDegAmp.value=opts.degaussAmp;
+    u.uDegDecay.value=opts.degaussDecay; u.uSlotScale.value=opts.logoSlot;
+    u.uLogoP.value=0; u.uLogoD.value=0;
+    relayout();
+    logoHidden=false;
+    if(opts.logoFlare) setLogoEl('hidden','');
+    setFieldProgress(LT.S.f1>0?0:1);   // also releases a deferred loop
+  }
   // Convenience: the whole FT side of the resolve on the approved timings.
   // Resolves (and fires faulty-terminal:logo-resolved) on the hand-off frame.
   function resolveLogo(timings){
     if(logoPromise) return logoPromise;
     logoPromise=new Promise(r=>{ logoResolveFn=r; });
-    const T={ fieldMs:opts.logoFieldMs, holdMs:opts.logoHoldMs, resolveMs:opts.logoResolveMs,
-      degOffset:opts.degaussOffset, degMs:opts.degaussMs, handOffset:opts.logoHandOffset,
-      spread:opts.logoSpread, degAmp:opts.degaussAmp, degDecay:opts.degaussDecay, slot:opts.logoSlot };
-    if(timings && typeof timings==='object') Object.keys(T).forEach(k=>{
+    if(timings && typeof timings==='object') Object.keys(LOGO_TIMING_KEYS).forEach(k=>{
       const v=Number(timings[k]);
-      if(timings[k]!=null && isFinite(v)) T[k]=v;
+      if(timings[k]!=null && isFinite(v)) opts[LOGO_TIMING_KEYS[k]]=v;
     });
     if(!logoAvailable() || reducedMotion){
       setFieldProgress(1);
       setTimeout(()=>finishLogo(true),0);
       return logoPromise;
     }
-    const u=program.uniforms;
-    u.uLogoSpread.value=T.spread; u.uDegAmp.value=T.degAmp; u.uDegDecay.value=T.degDecay; u.uSlotScale.value=T.slot;
-    u.uLogoP.value=0; u.uLogoD.value=0;
-    relayout();
-    logoHidden=false;
-    const fieldMs=Math.max(0,T.fieldMs);
-    const resolveStart=fieldMs+Math.max(0,T.holdMs), resolveMs=Math.max(1,T.resolveMs);
-    const degStart=resolveStart+resolveMs+T.degOffset, degMs=Math.max(1,T.degMs);
-    logoTimeline={ t0:-1, fieldMs, resolveStart, resolveMs, degStart, degMs,
-      handoff:Math.max(resolveStart, degStart+degMs+T.handOffset) };
-    setFieldProgress(fieldMs>0?0:1);   // also releases a deferred loop
+    logoPlay();
     return logoPromise;
   }
-  function stepLogoTimeline(t){
-    const L=logoTimeline;
-    if(L.t0<0) L.t0=t;
-    const e=t-L.t0;
-    setFieldProgress(L.fieldMs>0?e/L.fieldMs:1);
-    setLogoProgress((e-L.resolveStart)/L.resolveMs);
-    setDegaussProgress((e-L.degStart)/L.degMs);
-    if(e>=L.handoff){
-      logoTimeline=null;
-      setLogoVisible(false);
-      logoHandoffPending=true;   // event fires once this frame is drawn
-    }
-  }
+  // Debug-panel handle on the clock. Replays don't resolve the promise again,
+  // but each hand-off fires faulty-terminal:logo-resolved.
+  const logoTimeline = logoOn ? {
+    get schedule(){ return LT.S || logoSchedule(logoTimings()); },
+    get time(){ return LT.e; },
+    get playing(){ return LT.playing; },
+    get startedAt(){ return LT.startedAt; },
+    get speed(){ return LT.speed; },
+    get ghost(){ return LT.ghost; },
+    play(){
+      const u=program.uniforms;
+      u.uRippleActive.value=0; u.uAftershockActive.value=0; u.uRippleProgress.value=0;
+      logoPlay();
+    },
+    pause(){ if(LT.playing){ LT.playing=false; LT.base=LT.e; LT.tStart=-1; } },
+    seek(ms){
+      if(!LT.S) LT.S=logoSchedule(logoTimings());
+      LT.playing=false; LT.e=clamp(Number(ms)||0,0,LT.S.done); LT.base=LT.e; LT.tStart=-1;
+      LT.handed=LT.e>=LT.S.h; LT.rippled=LT.e>=LT.S.rp;
+      logoRender();
+    },
+    setSpeed(x){ LT.base=LT.e; LT.tStart=-1; LT.speed=Math.max(0.01, Number(x)||1); },
+    setGhost(on){ LT.ghost=!!on; if(LT.S) logoRender(); },
+    refresh(){
+      LT.S=logoSchedule(logoTimings());
+      const u=program.uniforms;
+      u.uLogoSpread.value=opts.logoSpread; u.uDegAmp.value=opts.degaussAmp;
+      u.uDegDecay.value=opts.degaussDecay; u.uSlotScale.value=opts.logoSlot;
+      LT.e=Math.min(LT.e, LT.S.done);
+      if(!LT.playing) logoRender();
+    },
+  } : null;
   let fadeDelay=opts.pageLoadDelay||0;
   const fadeDuration=Math.max(0, Number(opts.pageLoadDuration)||0);
   if(opts.ripple){
@@ -1417,7 +1543,7 @@ function createInstance(ctn, opts){
       program.uniforms.uMwpWaveEnv.value=
         wp>=1?0:(wp<0.1?wp*10:Math.pow(1-(wp-0.1)/0.9,2));
     }
-    if(logoTimeline) stepLogoTimeline(t);
+    if(LT.playing) stepLogo(t);
     if(opts.pageLoadAnimation && (!opts.ripple || pageLoadFallback) && !fieldDriven){
       if(loadStart===0) loadStart=t;
       const elapsed=t-loadStart-fadeDelay;
@@ -1503,10 +1629,12 @@ function createInstance(ctn, opts){
     if(key==='tiltStrength') tiltStrengthRef=val;
     if(key==='tiltReact'){ opts.tiltReact=val; if(!val) gl.canvas.style.transform=''; }
     if(key==='timeScale') opts.timeScale=val;
+    if(LOGO_OPTION_KEYS[key]){ opts[key]=val; if(logoTimeline && !FEATURE_PARAMS[key]) logoTimeline.refresh(); }
     const xu=FEATURE_PARAMS[key];
     if(xu && program.uniforms[xu]){
       opts[key]=val;
       program.uniforms[xu].value = key==='rippleGate' ? (val===false?0:1) : val;
+      if(logoTimeline && LOGO_OPTION_KEYS[key]) logoTimeline.refresh();
     }
   }
   function getParam(key){
@@ -1549,7 +1677,7 @@ function createInstance(ctn, opts){
   }
   const api = { ctn, opts, setParam, getParam, retrigger, ready, hasRipple: opts.ripple,
     relayout, setFieldProgress, setLogoProgress, setDegaussProgress, setLogoVisible, resolveLogo,
-    holdFullScale, reducedMotion };
+    holdFullScale, reducedMotion, logoTimeline };
   return api;
 }
 function buildDebugPanel(instances){
@@ -1595,6 +1723,46 @@ transition:background .15s;}
 #ft-retrigger{border-color:#3dc096!important;color:#3dc096!important;}
 #ft-retrigger:hover{background:rgba(61,192,150,0.15)!important;}
 #ft-retrigger:disabled{opacity:.35;cursor:not-allowed;}
+#ft-dbh{cursor:grab;user-select:none;touch-action:none;gap:8px;}
+#ft-debug.ft-dragging #ft-dbh{cursor:grabbing;}
+.ft-win{display:flex;gap:3px;margin-left:auto;}
+.ft-win button{background:rgba(255,255,255,0.06);border:1px solid #2a3a40;color:#99a;width:22px;height:20px;
+border-radius:4px;cursor:pointer;font:11px monospace;padding:0;line-height:1;}
+.ft-win button:hover{background:rgba(255,255,255,0.14);color:#fff;}
+.ft-win button[aria-pressed=true]{border-color:#3dc096;color:#3dc096;}
+#ft-debug.ft-dock{top:0;bottom:0;max-height:none;height:100vh;width:380px;border-radius:0;}
+#ft-debug.ft-dock-left{left:0;right:auto;border-width:0 1px 0 0;}
+#ft-debug.ft-dock-right{right:0;left:auto;border-width:0 0 0 1px;}
+#ft-debug.ft-dock #ft-dbh{cursor:default;border-radius:0;}
+#ft-debug.ft-popped{position:static;width:auto;height:100vh;max-height:none;border:0;border-radius:0;box-shadow:none;}
+#ft-debug.ft-popped #ft-dbh{cursor:default;border-radius:0;}
+#ft-debug.ft-popped .ft-win button[data-mode]{display:none;}
+.ft-row input[type=checkbox]{width:auto;accent-color:#3dc096;cursor:pointer;}
+.ft-row.ft-off label{opacity:.45;}
+#ft-logo{padding:4px 12px 8px;display:flex;flex-direction:column;gap:6px;}
+#ft-logo .ft-lbar{display:flex;flex-wrap:wrap;gap:5px;align-items:center;}
+#ft-logo button,#ft-logo select{background:rgba(255,255,255,0.06);color:#bbb;border:1px solid #2a3a40;
+border-radius:4px;cursor:pointer;font:11px monospace;padding:3px 7px;}
+#ft-logo button:hover{background:rgba(255,255,255,0.13);color:#fff;}
+#ft-logo button.ft-go{border-color:#3dc096;color:#3dc096;}
+#ft-logo label.ft-chk{display:flex;align-items:center;gap:4px;color:#889;cursor:pointer;}
+#ft-logo label.ft-chk input{accent-color:#3dc096;margin:0;}
+.ft-lstat{display:flex;justify-content:space-between;gap:8px;color:#778;font-variant-numeric:tabular-nums;}
+.ft-lstat b{color:#ddd;font-weight:normal;}
+.ft-track{position:relative;height:86px;margin-bottom:14px;border:1px solid #1f3036;border-radius:4px;
+background:rgba(0,0,0,0.25);cursor:ew-resize;touch-action:none;user-select:none;}
+.ft-lane{position:absolute;left:0;right:0;height:13px;}
+.ft-seg{position:absolute;top:0;height:13px;border-radius:2px;overflow:hidden;white-space:nowrap;
+font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
+.ft-seg.f{background:#3b5a62;}.ft-seg.r{background:linear-gradient(90deg,#3b5a62,#F28745);}
+.ft-seg.d{background:repeating-linear-gradient(90deg,#c93f63 0 5px,#2f8a78 5px 10px);}
+.ft-seg.x{background:linear-gradient(90deg,#fff,#F28745 35%,rgba(242,135,69,0));color:#222;}
+.ft-mk{position:absolute;top:0;bottom:0;border-left:1px dashed rgba(255,255,255,0.5);pointer-events:none;}
+.ft-mk em{position:absolute;bottom:1px;left:3px;font-style:normal;font-size:9px;color:#ddd;white-space:nowrap;}
+.ft-mk.rp{border-color:#F28745;}.ft-mk.rp em{bottom:12px;color:#F28745;}
+.ft-ph{position:absolute;top:-3px;bottom:-3px;width:2px;background:#fff;box-shadow:0 0 6px rgba(255,255,255,0.6);pointer-events:none;}
+.ft-tk{position:absolute;left:0;right:0;bottom:-14px;height:12px;font-size:9px;color:#557;}
+.ft-tk i{position:absolute;font-style:normal;transform:translateX(-50%);}
 `;
     document.head.appendChild(s);
   }
@@ -1602,7 +1770,9 @@ transition:background .15s;}
   panel.id='ft-debug';
   document.body.appendChild(panel);
   panel.innerHTML=`
-<div id="ft-dbh"><b>🎛 ft debug</b><small>\` toggle</small></div>
+<div id="ft-dbh"><b>🎛 ft debug</b><small>\` toggle</small><span class="ft-win">
+<button data-mode="left" title="Dock left">◧</button><button data-mode="float" title="Float (drag the bar)">▢</button>
+<button data-mode="right" title="Dock right">◨</button><button id="ft-pop" title="Pop out into its own window">⧉</button></span></div>
 <div id="ft-ibar">
 <button id="ft-prev">◀</button>
 <span id="ft-ilabel">Terminal 1 / ${instances.length}</span>
@@ -1612,12 +1782,17 @@ transition:background .15s;}
 <div id="ft-dbf">
 <button id="ft-retrigger">↺ re-trigger</button>
 <button id="ft-copy">⎘ copy values</button>
+</div>
+<div id="ft-dbk" style="padding:0 12px 8px;color:#667;display:flex;gap:6px;align-items:center;flex-shrink:0;">
+<label style="display:flex;gap:5px;align-items:center;cursor:pointer;" title="Remember the panel's values, layout and open state in this browser and re-apply them after a reload. Other visitors are unaffected."><input type="checkbox" id="ft-keep" style="accent-color:#3dc096;margin:0;"> keep tweaks on reload</label>
 </div>`;
   if(instances.length<=1){
     panel.querySelector('#ft-prev').style.visibility='hidden';
     panel.querySelector('#ft-next').style.visibility='hidden';
   }
   const body=panel.querySelector('#ft-dbb');
+  const logoBox=document.createElement('div');
+  body.appendChild(logoBox);
   const ilabel=panel.querySelector('#ft-ilabel');
   let currentIdx=0;
   const inst=()=>instances[currentIdx];
@@ -1660,6 +1835,23 @@ transition:background .15s;}
     }
   });
   const inputs={}; // key → {input, val (span or null)}
+  // keep tweaks on reload: values per terminal (by name), panel layout, open state
+  const STORE='ft-debug';
+  const store=(()=>{ try{ return JSON.parse(localStorage.getItem(STORE)||'null')||{}; }catch(e){ return {}; } })();
+  store.values=store.values||{};
+  const saveStore=()=>{ if(!store.keep) return; try{ localStorage.setItem(STORE, JSON.stringify(store)); }catch(e){} };
+  function setP(key,v){
+    inst().setParam(key,v);
+    const n=instName(currentIdx);
+    (store.values[n]=store.values[n]||{})[key]=v;
+    saveStore();
+  }
+  if(store.keep){
+    instances.forEach((it,i)=>{
+      const vals=store.values[instName(i)];
+      if(vals) Object.keys(vals).forEach(k=>{ try{ it.setParam(k,vals[k]); }catch(e){} });
+    });
+  }
   let lastSec=null;
   SLIDERS.forEach(([key,,label,min,max,step,section,type])=>{
     if(section!==lastSec){
@@ -1676,7 +1868,7 @@ transition:background .15s;}
       inp.type='checkbox';
       inp.checked=!!(inst().getParam(key)??DEFAULTS[key]);
       inp.style.cssText='width:auto;accent-color:#3dc096;cursor:pointer;';
-      inp.addEventListener('change',()=>inst().setParam(key,inp.checked));
+      inp.addEventListener('change',()=>setP(key,inp.checked));
       const spacer=document.createElement('span');
       row.appendChild(lbl); row.appendChild(inp); row.appendChild(spacer);
       body.appendChild(row);
@@ -1691,7 +1883,7 @@ transition:background .15s;}
         sel.appendChild(o);
       });
       sel.value=Math.round(inst().getParam(key)??DEFAULTS[key]??0);
-      sel.addEventListener('change',()=>inst().setParam(key,parseFloat(sel.value)));
+      sel.addEventListener('change',()=>setP(key,parseFloat(sel.value)));
       const spacer=document.createElement('span');
       row.appendChild(lbl); row.appendChild(sel); row.appendChild(spacer);
       body.appendChild(row);
@@ -1705,7 +1897,7 @@ transition:background .15s;}
       inp.addEventListener('input',()=>{
         const v=parseFloat(inp.value);
         val.textContent=fmt(v,step);
-        inst().setParam(key,v);
+        setP(key,v);
       });
       row.appendChild(lbl); row.appendChild(inp); row.appendChild(val);
       body.appendChild(row);
@@ -1730,6 +1922,7 @@ transition:background .15s;}
         if(inputs[key].val) inputs[key].val.textContent=fmt(v,step);
       }
     });
+    buildLogo();
     const btn=panel.querySelector('#ft-retrigger');
     btn.disabled=!inst().hasRipple;
     btn.title=inst().hasRipple?'':'ripple disabled for this instance';
@@ -1750,23 +1943,202 @@ transition:background .15s;}
         : `  ${key}: ${fmt(v,step)},\n`;
     });
     out+='};';
+    if(inst().logoTimeline){
+      out+='\n// logo resolve: site config (FaultyTerminalConfig / data-ft-opts)\nconst LOGO = {\n';
+      LOGO_KNOBS.forEach(([key])=>{ out+=`  ${key}: ${+(+inst().getParam(key)).toFixed(3)},\n`; });
+      out+='};';
+    }
     navigator.clipboard.writeText(out).catch(()=>console.log(out));
     const btn=panel.querySelector('#ft-copy');
     const orig=btn.textContent;
     btn.textContent='✓ copied!';
     setTimeout(()=>btn.textContent=orig,1500);
   });
+  function setOpen(open){
+    panel.classList.toggle('ft-hidden', !open);
+    if(open) markSelected(); else instances.forEach(it=>it.ctn.classList.remove('ft-panel-selected'));
+    store.open=open; saveStore();
+    if(open) tickLogo();
+  }
   document.addEventListener('keydown',e=>{
-    if(e.key!=='`') return;
-    panel.classList.toggle('ft-hidden');
-    if(panel.classList.contains('ft-hidden'))
-      instances.forEach(it=>it.ctn.classList.remove('ft-panel-selected'));
-    else markSelected();
+    if(e.key!=='`' || popWin) return;
+    const t=e.target;
+    if(t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    setOpen(panel.classList.contains('ft-hidden'));
   });
-  panel.classList.add('ft-hidden');
+
+  // ---- logo resolve section: timeline, scrub, knobs ----
+  let logoUi=null;
+  function buildLogo(){
+    logoBox.innerHTML=''; logoUi=null;
+    const lt=inst().logoTimeline;
+    if(!lt) return;
+    const it=inst();
+    logoBox.innerHTML=`<div class="ft-sec">LOGO RESOLVE</div><div id="ft-logo">
+<div class="ft-lbar"><button class="ft-go" data-a="play">▶ play</button><button data-a="pause">❚❚</button>
+<button data-a="reload" title="Reload the page: replays the whole intro, Webflow interactions included">⟳ reload page</button>
+<select data-a="speed" title="Playback speed"><option value="1">1×</option><option value="0.5">0.5×</option>
+<option value="0.25">0.25×</option><option value="0.1">0.1×</option></select>
+<label class="ft-chk" title="Show the final logo at 45% over the resolve"><input type="checkbox" data-a="ghost"> ghost</label></div>
+<div class="ft-lstat"><span data-o="clock">0 ms</span><span data-o="stage"></span></div>
+<div class="ft-track" data-o="track"></div><div data-o="knobs"></div>
+<div class="ft-lstat"><span data-o="start"></span><button data-a="reset" style="padding:2px 6px;">reset timings</button></div></div>`;
+    const q=a=>logoBox.querySelector(a);
+    const track=q('[data-o=track]'), knobs=q('[data-o=knobs]');
+    const flareOn=!!it.opts.logoFlare, rippleOn=!!it.opts.logoRipple;
+    LOGO_KNOBS.forEach(([key,label,min,max,step])=>{
+      const row=document.createElement('div'); row.className='ft-row';
+      const off=(/Flare/.test(key)&&!flareOn)||(key==='logoRippleAt'&&!rippleOn);
+      if(off){ row.classList.add('ft-off'); row.title='The site runs this part (logo'+(key==='logoRippleAt'?'Ripple':'Flare')+' is off)'; }
+      const lbl=document.createElement('label'); lbl.title=key; lbl.textContent=label;
+      const inp=document.createElement('input'); inp.type='range'; inp.min=min; inp.max=max; inp.step=step;
+      inp.value=it.getParam(key);
+      const val=document.createElement('span'); val.className='ftv'; val.textContent=fmt(inp.value,step);
+      inp.addEventListener('input',()=>{ const v=parseFloat(inp.value); val.textContent=fmt(v,step); setP(key,v); drawTrack(); });
+      row.appendChild(lbl); row.appendChild(inp); row.appendChild(val); knobs.appendChild(row);
+    });
+    function pct(ms){ return (ms/lt.schedule.done*100)+'%'; }
+    function drawTrack(){
+      const S=lt.schedule, end=S.done;
+      const lane=(cls,name,a,b,top)=>`<div class="ft-lane" style="top:${top}px"><div class="ft-seg ${cls}" style="left:${pct(a)};width:${pct(Math.max(0,b-a))}">${name}</div></div>`;
+      let h=lane('f','field',0,S.f1,3)+lane('r','resolve',S.r0,S.r1,19)+lane('d','degauss',S.d0,S.d1,35)+lane('x','flare',S.h,S.x1,51);
+      h+=`<div class="ft-mk" style="left:${pct(S.h)}"><em>hand-off</em></div><div class="ft-mk rp" style="left:${pct(S.rp)}"><em>ripple</em></div>`;
+      h+='<div class="ft-ph" data-o="ph"></div><div class="ft-tk">';
+      for(let t=0;t<=end;t+=500) h+=`<i style="left:${pct(t)}">${(t/1000).toFixed(1)}s</i>`;
+      track.innerHTML=h+'</div>';
+    }
+    drawTrack();
+    function scrub(x){ const r=track.getBoundingClientRect(); lt.seek(clamp((x-r.left)/r.width,0,1)*lt.schedule.done); }
+    track.addEventListener('pointerdown',e=>{ track.setPointerCapture(e.pointerId); scrub(e.clientX); });
+    track.addEventListener('pointermove',e=>{ if(e.buttons) scrub(e.clientX); });
+    logoBox.addEventListener('click',e=>{
+      const a=e.target.closest('[data-a]'); if(!a) return;
+      const act=a.getAttribute('data-a');
+      if(act==='play') lt.play();
+      if(act==='pause') lt.pause();
+      if(act==='reload') location.reload();
+      if(act==='reset'){
+        LOGO_KNOBS.forEach(([key])=>setP(key,DEFAULTS[key]));
+        knobs.querySelectorAll('input').forEach((inp,i)=>{ const [key,,,,step]=LOGO_KNOBS[i]; inp.value=DEFAULTS[key]; inp.nextSibling.textContent=fmt(DEFAULTS[key],step); });
+        drawTrack();
+      }
+    });
+    const spd=q('[data-a=speed]'); spd.value=String(lt.speed);
+    spd.addEventListener('change',()=>lt.setSpeed(parseFloat(spd.value)));
+    const gh=q('[data-a=ghost]'); gh.checked=lt.ghost;
+    gh.addEventListener('change',()=>lt.setGhost(gh.checked));
+    logoUi={ lt, clock:q('[data-o=clock]'), stage:q('[data-o=stage]'), start:q('[data-o=start]'), track, pct };
+    tickLogo();
+  }
+  function stageAt(S,e){
+    if(e<S.f1) return 'field fades in';
+    if(e<S.r0) return 'hold';
+    if(e<Math.min(S.d0,S.h)) return 'resolve · lock, switch on, fill';
+    if(e<S.h) return 'degauss · wobble + fringe';
+    if(e<S.x1) return 'hand-off · flare';
+    return 'done';
+  }
+  let tickId=0;
+  function tickLogo(){
+    cancelAnimationFrame(tickId);
+    if(!logoUi || panel.classList.contains('ft-hidden') && !popWin) return;
+    const {lt,clock,stage,start,track,pct}=logoUi, S=lt.schedule, e=lt.time;
+    clock.textContent=Math.round(e)+' ms'+(lt.playing?'':' · paused');
+    stage.textContent=stageAt(S,e);
+    start.textContent=lt.startedAt?('started '+Math.round(lt.startedAt)+' ms after page load'):'';
+    const ph=track.querySelector('[data-o=ph]'); if(ph) ph.style.left=pct(Math.min(e,S.done));
+    tickId=requestAnimationFrame(tickLogo);
+  }
+
+  // ---- window: float + drag, dock left/right, pop out ----
+  let popWin=null;
+  function setMode(mode){
+    store.mode=mode; saveStore();
+    panel.classList.remove('ft-dock','ft-dock-left','ft-dock-right');
+    if(mode==='left'||mode==='right'){ panel.classList.add('ft-dock','ft-dock-'+mode); panel.style.left=panel.style.top=''; }
+    else if(store.pos){ panel.style.left=store.pos[0]+'px'; panel.style.top=store.pos[1]+'px'; panel.style.right='auto'; }
+    panel.querySelectorAll('.ft-win button[data-mode]').forEach(b=>b.setAttribute('aria-pressed', String(b.getAttribute('data-mode')===(mode||'float'))));
+  }
+  panel.querySelector('.ft-win').addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b) return;
+    if(b.id==='ft-pop') return popWin ? popWin.close() : popOut();
+    setMode(b.getAttribute('data-mode'));
+  });
+  const head=panel.querySelector('#ft-dbh');
+  head.addEventListener('pointerdown',e=>{
+    if(e.target.closest('button') || popWin || panel.classList.contains('ft-dock')) return;
+    const r=panel.getBoundingClientRect(), dx=e.clientX-r.left, dy=e.clientY-r.top;
+    head.setPointerCapture(e.pointerId); panel.classList.add('ft-dragging');
+    const move=ev=>{
+      const x=clamp(ev.clientX-dx,0,innerWidth-60), y=clamp(ev.clientY-dy,0,innerHeight-30);
+      panel.style.left=x+'px'; panel.style.top=y+'px'; panel.style.right='auto'; store.pos=[x,y];
+    };
+    const up=()=>{ head.removeEventListener('pointermove',move); head.removeEventListener('pointerup',up); panel.classList.remove('ft-dragging'); saveStore(); };
+    head.addEventListener('pointermove',move); head.addEventListener('pointerup',up);
+  });
+  // Pop out: Document Picture-in-Picture (Chrome/Edge) gives an always-on-top
+  // window you can drag anywhere, outside the browser too; elsewhere, a popup.
+  async function popOut(){
+    let w=null;
+    const h=Math.min(1000,(screen.availHeight||900)-80);
+    try{
+      if(window.documentPictureInPicture) w=await window.documentPictureInPicture.requestWindow({ width:400, height:h });
+    }catch(e){ w=null; }
+    if(!w) w=window.open('', 'ft-debug', 'popup,width=400,height='+h);
+    if(!w) return;
+    popWin=w;
+    const d=w.document;
+    d.title='ft debug';
+    const st=document.getElementById('ft-debug-styles');
+    d.head.appendChild(st.cloneNode(true));
+    d.body.style.cssText='margin:0;background:#080c10;';
+    panel.classList.remove('ft-hidden');
+    panel.classList.add('ft-popped');
+    d.body.appendChild(panel);
+    panel.querySelector('#ft-pop').setAttribute('aria-pressed','true');
+    panel.querySelector('#ft-pop').title='Back into the page';
+    const back=()=>{
+      if(!popWin) return;
+      popWin=null;
+      panel.classList.remove('ft-popped');
+      document.body.appendChild(panel);
+      panel.querySelector('#ft-pop').setAttribute('aria-pressed','false');
+      panel.querySelector('#ft-pop').title='Pop out into its own window';
+      setMode(store.mode); tickLogo();
+    };
+    w.addEventListener('pagehide', back);
+    const iv=setInterval(()=>{ if(w.closed){ clearInterval(iv); back(); } }, 500);
+    tickLogo();
+  }
+  const keep=panel.querySelector('#ft-keep');
+  keep.checked=!!store.keep;
+  keep.addEventListener('change',()=>{
+    store.keep=keep.checked;
+    if(store.keep) saveStore(); else { try{ localStorage.removeItem(STORE); }catch(e){} }
+  });
+
+  setMode(store.mode||'float');
   loadInst(0);
-  instances.forEach(it=>it.ctn.classList.remove('ft-panel-selected'));
+  setOpen(!!(store.keep && store.open));
 }
+// Debug panel controls for the logo timeline: key, label, min, max, step.
+const LOGO_KNOBS = [
+  ['logoFieldMs', 'field fade-in', 200, 2500, 50],
+  ['logoHoldMs', 'hold', 0, 1500, 50],
+  ['logoResolveMs', 'resolve', 400, 4000, 50],
+  ['logoSpread', 'pixel stagger', 0, 0.5, 0.01],
+  ['degaussOffset', 'degauss vs fill', -1500, 800, 10],
+  ['degaussMs', 'degauss length', 150, 2000, 10],
+  ['degaussAmp', 'degauss amp', 0, 2, 0.05],
+  ['degaussDecay', 'degauss settle', 1, 12, 0.25],
+  ['logoSlot', 'pre-degauss size', 0.5, 1, 0.01],
+  ['logoHandOffset', 'hand-off vs end', -800, 600, 10],
+  ['logoFlareMs', 'flare length', 150, 1500, 10],
+  ['logoFlareSpread', 'flare stagger', 0, 500, 10],
+  ['logoFlareIntensity', 'flare intensity', 0, 4, 0.05],
+  ['logoFlareBlur', 'flare blur (px)', 0, 40, 1],
+  ['logoRippleAt', 'ripple vs hand-off', -300, 1000, 10],
+];
 // Webflow Libraries namespace a component's classes on install — a component
 // shared from "MWP Component Library" arrives as
 // .mwp-component-library--faulty-terminal, not .faulty-terminal. Matching the

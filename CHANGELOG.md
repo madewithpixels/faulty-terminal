@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.12.0 — logo timeline in the debug panel
+
+- **Debug panel window.** Dock it left or right at full height, float and drag
+  it, or pop it out into its own window (Document Picture-in-Picture in Chrome
+  and Edge, so it can sit outside the browser; a popup elsewhere).
+  "keep tweaks on reload" remembers values, layout and open state in this
+  browser only.
+- **Logo resolve timeline in the panel** (from the approved prototype's timeline
+  dock): play / pause / reload page, speed, ghost, a scrubbable track with
+  field, resolve, degauss and flare lanes and the hand-off and ripple markers,
+  and a slider for every timing. Copy values adds a `LOGO` block.
+- **The logo timeline is one seekable clock** (`instance.logoTimeline`):
+  `play`, `pause`, `seek`, `setSpeed`, `setGhost`, `refresh`.
+- **New options, off by default:** `logoFlare` (faulty-terminal hides the logo
+  element until the hand-off and flares its pixels), `logoRipple` (fires the
+  ripple after the hand-off), `logoPixels`, `logoFlareMs` 350,
+  `logoFlareSpread` 500, `logoRippleAt` 60, `logoFlareIntensity` 1.6, `logoFlareBlur` 14 (both in the panel). With both off the site runs the
+  flare and ripple, as in 1.11.0.
+- Checked frame for frame: with every option off the frames match v1.10.1
+  (six scenarios, 0 mismatches), and the default logo path matches v1.11.0
+  (0 mismatches over 230 frames, hand-off on the same frame).
+- The panel ships hidden and opens with backtick, as before. Panel code
+  touches nothing until it is used.
+
 ## 1.11.0 — logo resolve
 
 The madewithpixels heart can now resolve out of the terminal field instead of

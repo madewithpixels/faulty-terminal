@@ -98,3 +98,35 @@ Each HTML pixel: brightness up to ×2.6 with a glow in its own colour up to
   the autoTune scale after.
 - If the phosphor afterglow ever reads as a double heart after hand-off, say
   so — FT can clear the logo region from the phosphor buffer on hand-off.
+
+---
+
+## As launched (30 Oct 2026) and the v1.12.0 update
+
+**What is live on madewithpixels (v1.11.0):**
+
+- Site footer: the SRI-pinned `@v1.11.0` tag in place of `@1.10.1`.
+- Home: two registered scripts (Site/Page settings → Custom code shows them as
+  `FTLogoResolveHead` and `FTLogoResolveFooter`), not the freeform blocks.
+  - Head: adds `html.ft-lr` (hides `.mwp-logo`, 10s CSS failsafe; skipped for
+    reduced motion) and defines `window.mwpLogoPlace(logo)`, which sizes and
+    places the heart in whole device pixels and returns `{ pitch, size }`.
+  - Footer: sets the options as `data-ft-*` attributes on the terminal element
+    (they beat `window.FaultyTerminalConfig` whatever order the scripts run
+    in), calls `resolveLogo()` after first paint, then runs the flare and the
+    ripple itself.
+- Hero interaction: the "Ripple" (`does-ripple`) step is hidden, not deleted.
+
+**v1.12.0 moves the flare and ripple into faulty-terminal** (`logoFlare`,
+`logoRipple`), so the debug panel's timeline can play, scrub and tweak the whole
+sequence. Going to v1.12.0 on the site needs:
+
+1. Site footer tag → `@v1.12.0` (the tag in `webflow/faulty-terminal-loader.html`).
+2. Home footer script → version 1.12.0 of `FTLogoResolveFooter`, which adds
+   `data-ft-logo-flare="true"` and `data-ft-logo-ripple="true"`, calls
+   `resolveLogo()` and removes `html.ft-lr` straight after. faulty-terminal
+   hides the heart from then until the hand-off. The head script is unchanged.
+3. Publish. Then backtick opens the panel; ⧉ pops it out.
+
+Both must change together: the 1.12.0 footer script expects faulty-terminal to
+run the flare.
