@@ -16,7 +16,7 @@
 - **New options, off by default:** `logoFlare` (faulty-terminal hides the logo
   element until the hand-off and flares its pixels), `logoRipple` (fires the
   ripple after the hand-off), `logoPixels`, `logoFlareMs` 350,
-  `logoFlareSpread` 500, `logoRippleAt` 60. With both off the site runs the
+  `logoFlareSpread` 500, `logoRippleAt` 60, `logoFlareIntensity` 1.6, `logoFlareBlur` 14 (both in the panel). With both off the site runs the
   flare and ripple, as in 1.11.0.
 - Checked frame for frame: with every option off the frames match v1.10.1
   (six scenarios, 0 mismatches), and the default logo path matches v1.11.0

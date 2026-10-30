@@ -477,6 +477,8 @@ code is only compiled in when one of these asks for it).
 | `logoFlareMs` | `350` | Flare length per pixel |
 | `logoFlareSpread` | `500` | Flare stagger across the pixels (4×4 ordered) |
 | `logoRippleAt` | `60` | Ripple, ms after the hand-off |
+| `logoFlareIntensity` | `1.6` | Flare peak brightness above normal (1.6 = ×2.6) |
+| `logoFlareBlur` | `14` | Flare glow radius at its peak, px (0 = no glow) |
 
 ---
 

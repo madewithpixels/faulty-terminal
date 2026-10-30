@@ -157,6 +157,8 @@ const DEFAULTS = {
   logoFlareMs: 350,         // flare length per pixel
   logoFlareSpread: 500,     // flare stagger across the pixels
   logoRippleAt: 60,         // ripple, ms after the hand-off
+  logoFlareIntensity: 1.6,  // flare peak brightness above normal (1.6 = ×2.6)
+  logoFlareBlur: 14,        // flare glow radius at its peak, px
   // false: the ripple ring pulses (brightness, colour, warp) over a field that
   // is already showing, without the reveal front hiding glyphs or letters.
   rippleGate: true,
@@ -800,7 +802,7 @@ const TILT_SCALE = 1.06;
 // Logo-resolve options the debug panel may change live.
 const LOGO_OPTION_KEYS = { logoFieldMs:1, logoHoldMs:1, logoResolveMs:1, logoSpread:1, degaussOffset:1,
   degaussMs:1, degaussAmp:1, degaussDecay:1, logoSlot:1, logoHandOffset:1, logoFlareMs:1,
-  logoFlareSpread:1, logoRippleAt:1 };
+  logoFlareSpread:1, logoRippleAt:1, logoFlareIntensity:1, logoFlareBlur:1 };
 function safeQueryAll(root, sel){
   try{ return [].slice.call(root.querySelectorAll(sel)); }
   catch(e){ console.warn('[faulty-terminal] ignoring invalid selector:', sel); return null; }
@@ -1349,7 +1351,8 @@ function createInstance(ctn, opts){
       if(handed && t>=0 && t<1){
         if(!p.glow) p.glow=getComputedStyle(p.el).backgroundColor;
         const k=Math.exp(-t*S.fx/180);
-        f='brightness('+(1+1.6*k).toFixed(3)+') drop-shadow(0 0 '+(14*k).toFixed(1)+'px '+p.glow+')';
+        const bi=Math.max(0,Number(opts.logoFlareIntensity)||0), br=Math.max(0,Number(opts.logoFlareBlur)||0);
+        f='brightness('+(1+bi*k).toFixed(3)+')'+(br>0?' drop-shadow(0 0 '+(br*k).toFixed(1)+'px '+p.glow+')':'');
       }
       if(f!==p.f){ p.f=f; p.el.style.filter=f; }
     });
@@ -2132,6 +2135,8 @@ const LOGO_KNOBS = [
   ['logoHandOffset', 'hand-off vs end', -800, 600, 10],
   ['logoFlareMs', 'flare length', 150, 1500, 10],
   ['logoFlareSpread', 'flare stagger', 0, 500, 10],
+  ['logoFlareIntensity', 'flare intensity', 0, 4, 0.05],
+  ['logoFlareBlur', 'flare blur (px)', 0, 40, 1],
   ['logoRippleAt', 'ripple vs hand-off', -300, 1000, 10],
 ];
 // Webflow Libraries namespace a component's classes on install — a component
