@@ -461,15 +461,15 @@ code is only compiled in when one of these asks for it).
 | `logoPitch` | `18` | Logo pixel pitch, CSS px. At non-100% zoom pass the device-px-exact value |
 | `logoSize` | `16` | Logo pixel size, CSS px (gap = pitch − size) |
 | `logoPixelsPerCell` | `2` | Logo pixels per glyph each way (1 or 2) |
-| `logoSpread` | `0.41` | Pixel stagger of the resolve (4×4 ordered) |
+| `logoSpread` | `0.31` | Pixel stagger of the resolve (4×4 ordered) |
 | `logoSlot` | `0.53` | Pixel size before the degauss, fraction of final |
-| `degaussAmp` | `1.8` | Degauss strength |
-| `degaussDecay` | `11` | Degauss settle speed |
-| `logoFieldMs` | `500` | `resolveLogo()`: field fade-in |
-| `logoHoldMs` | `250` | `resolveLogo()`: hold before the resolve |
-| `logoResolveMs` | `1200` | `resolveLogo()`: resolve progress 0→1 |
-| `degaussOffset` | `-420` | `resolveLogo()`: degauss start relative to the resolve's end |
-| `degaussMs` | `1550` | `resolveLogo()`: degauss progress 0→1 |
+| `degaussAmp` | `2` | Degauss strength |
+| `degaussDecay` | `6.5` | Degauss settle speed |
+| `logoFieldMs` | `550` | `resolveLogo()`: field fade-in |
+| `logoHoldMs` | `0` | `resolveLogo()`: hold before the resolve |
+| `logoResolveMs` | `400` | `resolveLogo()`: resolve progress 0→1 |
+| `degaussOffset` | `-70` | `resolveLogo()`: degauss start relative to the resolve's end |
+| `degaussMs` | `380` | `resolveLogo()`: degauss progress 0→1 |
 | `logoHandOffset` | `-140` | `resolveLogo()`: hand-off relative to the degauss's end |
 | `logoFullScale` | `true` | Full render scale, `autoTune` paused, from the start of the resolve to the hand-off |
 | `rippleGate` | `true` | `false`: the ring pulses (brightness, colour, warp) over a field that is already showing — no reveal front on glyphs or MWP letters |
@@ -477,10 +477,10 @@ code is only compiled in when one of these asks for it).
 | `logoRipple` | `false` | v1.12.0. faulty-terminal fires the ripple `logoRippleAt` ms after the hand-off |
 | `logoPixels` | `null` | Selector for the lit pixels inside the logo, in grid order. Default: the heart mask's cells, each the first descendant with a colour |
 | `logoFlareMs` | `350` | Flare length per pixel |
-| `logoFlareSpread` | `500` | Flare stagger across the pixels (4×4 ordered) |
-| `logoRippleAt` | `60` | Ripple, ms after the hand-off |
-| `logoFlareIntensity` | `1.6` | Flare peak brightness above normal (1.6 = ×2.6) |
-| `logoFlareBlur` | `14` | Flare glow radius at its peak, px (0 = no glow) |
+| `logoFlareSpread` | `220` | Flare stagger across the pixels (4×4 ordered) |
+| `logoRippleAt` | `30` | Ripple, ms after the hand-off |
+| `logoFlareIntensity` | `0.65` | Flare peak brightness above normal (0.65 = ×1.65) |
+| `logoFlareBlur` | `22` | Flare glow radius at its peak, px (0 = no glow) |
 
 ---
 
