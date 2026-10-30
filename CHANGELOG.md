@@ -1,5 +1,51 @@
 # Changelog
 
+## 1.11.0 — logo resolve
+
+The madewithpixels heart can now resolve out of the terminal field instead of
+sitting on top of it: inside the logo's footprint the glyphs lock, light up and
+fill into solid pixels on the logo's own grid, the heart takes a damped degauss
+wobble with a colour fringe, and the site swaps to its HTML heart on the
+hand-off frame. Productised from the approved prototype.
+
+**Everything is off by default. With the new options off the renderer is
+v1.10.1's, checked frame for frame** (readPixels hash of every frame in six
+scenarios: ripple, fallback, fade, instant + retrigger, `autoTune: false`,
+`warmStart: true` — 0 mismatches). The extra shader code is spliced in only
+when an option asks for it, so the default shader source is unchanged.
+
+New options (see the README table): `gridLock`, `gridLockCellPx`,
+`logoResolve`, `logoPitch`, `logoSize`, `logoPixelsPerCell`, `logoSpread`,
+`logoSlot`, `degaussAmp`, `degaussDecay`, the `resolveLogo()` timings
+(`logoFieldMs` 500, `logoHoldMs` 250, `logoResolveMs` 1200, `degaussOffset`
+−420, `degaussMs` 1550, `logoHandOffset` −140 — the approved 30 Oct 2026
+timings), `logoFullScale` and `rippleGate`.
+
+New instance methods: `setFieldProgress`, `setLogoProgress`,
+`setDegaussProgress`, `setLogoVisible`, `resolveLogo`, `relayout`,
+`holdFullScale`. New event: `faulty-terminal:logo-resolved`.
+
+Notes:
+
+- `rippleGate: false` also stops the reveal front hiding the MWP letters, since
+  the field is already showing when the ripple fires.
+- With `gridLock` on, the per-glyph brand colour (`brandMode: 3`) follows the
+  shifted cells, so a glyph never splits into two colours.
+- While the shader heart is showing, the tilt eases to rest so the shader heart
+  and the HTML heart line up at the hand-off; the grid layout accounts for the
+  tilt's 1.06 scale and the barrel magnification at the logo's centre.
+- The full-scale hold recreates the phosphor targets when the scale changes
+  (start of the resolve and the hand-off), so the trail restarts at those two
+  moments.
+- `softwareFallback` instances keep every new method as a no-op; `resolveLogo()`
+  still resolves and fires its event (`static: true`) so a site timeline carries
+  on. Under `prefers-reduced-motion: reduce` there is no resolve: the field
+  shows at once and the event fires with `reducedMotion: true`.
+- The existing MWP heart wave (`heartStamp`) still stamps one glyph per heart
+  pixel, twice the size of the logo at 2 × 2. `heartScale: 0.5` would match it.
+- The pixel stagger keeps the prototype's 4×4 formula as approved; its values
+  repeat, so it is not a strict Bayer permutation.
+
 ## 1.10.1
 
 - `warmStart` is now **off by default** (opt in with `warmStart: true`). On the

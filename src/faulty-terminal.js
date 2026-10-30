@@ -118,6 +118,38 @@ const DEFAULTS = {
   // window below fpsLow drops straight to renderScaleMin.
   warmStart: false,
   warmStartMs: 2000,
+  // --- logo resolve (v1.11.0). Everything here is off by default; with
+  // gridLock null, logoResolve false and rippleGate true the renderer is
+  // v1.10.1's, frame for frame. ---
+  // Lock the field's cells to an element (a CSS selector): square cells of
+  // gridLockCellPx CSS px, with a cell edge on the element's left and on its
+  // top minus one logo gap. 0 = logoPitch × logoPixelsPerCell.
+  gridLock: null,
+  gridLockCellPx: 0,
+  // Resolve the MWP heart out of the field inside the gridLock element's
+  // footprint. Needs gridLock. Driven by setLogoProgress / setDegaussProgress
+  // from the site's timeline, or by resolveLogo().
+  logoResolve: false,
+  logoPitch: 18,            // logo pixel pitch, CSS px (site passes device-px-exact values)
+  logoSize: 16,             // logo pixel size, CSS px
+  logoPixelsPerCell: 2,     // logo pixels per glyph, each way (1 or 2)
+  logoSpread: 0.41,         // pixel stagger of the resolve (4×4 ordered)
+  logoSlot: 0.53,           // pixel size before the degauss, fraction of final
+  degaussAmp: 1.8,          // degauss strength
+  degaussDecay: 11,         // degauss settle speed
+  // resolveLogo() timeline, ms (approved 30 Oct 2026)
+  logoFieldMs: 500,         // field fade-in
+  logoHoldMs: 250,          // hold before the resolve starts
+  logoResolveMs: 1200,      // resolve progress 0→1
+  degaussOffset: -420,      // degauss starts this long after the resolve ends (negative = before)
+  degaussMs: 1550,          // degauss progress 0→1
+  logoHandOffset: -140,     // hand-off this long after the degauss ends (negative = before)
+  // Render at renderScaleMax with autoTune paused from the start of the
+  // resolve until the hand-off (uneven pixel columns below full scale).
+  logoFullScale: true,
+  // false: the ripple ring pulses (brightness, colour, warp) over a field that
+  // is already showing, without the reveal front hiding glyphs or letters.
+  rippleGate: true,
 };
 const SLIDERS = [
   ['rippleDuration', null, 'duration (ms)', 300, 5000, 50, 'RIPPLE'],
@@ -583,6 +615,180 @@ col *= 1.0 - dot(vq, vq) * uVignette * 1.3;
 if(uDither > 0.0){ col += (hash21(gl_FragCoord.xy) - 0.5) * (uDither * 0.003922); }
 gl_FragColor = vec4(col, 1.0);
 }`;
+// ---------------------------------------------------------------------------
+// v1.11.0 shader features: grid lock, ungated ripple, logo resolve.
+// They are spliced into the v1.10.1 source above only when an option asks for
+// them. With every new option off the program is built from fragmentShader
+// unchanged, character for character, so the frames are v1.10.1's.
+// ---------------------------------------------------------------------------
+const LOGO_UNIFORMS = `uniform float uLogoOn;
+uniform float uLogoP;
+uniform float uLogoD;
+uniform float uLogoPPC;
+uniform vec2  uLogoOrigin;
+uniform float uLogoCellPx;
+uniform float uLogoPitch;
+uniform float uLogoSize;
+uniform float uLogoSpread;
+uniform float uDegAmp;
+uniform float uDegDecay;
+uniform float uSlotScale;`;
+// The logo resolve, productised from the approved prototype patch
+// (Claude outputs/heart-resolve-prototype.patch). pf is the field position in
+// grid-shifted units; uLogoOrigin is the top-left of the cell holding the
+// heart's top-left pixel, in the same units. Lengths in CSS px.
+const LOGO_GLSL = `
+// 4x4 ordered stagger. This is the prototype's formula as approved; note its
+// values repeat (it is not a strict Bayer permutation), which is part of the
+// approved timing feel at logoSpread 0.41.
+float bayer4(vec2 c){
+vec2 a = mod(floor(c), 4.0);
+float x = a.x, y = a.y;
+float b = mod(x,2.0)*2.0 + mod(y,2.0)*3.0 - 2.0*mod(x,2.0)*mod(y,2.0);
+float b2 = mod(floor(x/2.0),2.0)*2.0 + mod(floor(y/2.0),2.0)*3.0 - 2.0*mod(floor(x/2.0),2.0)*mod(floor(y/2.0),2.0);
+return (b*4.0 + b2) / 16.0;
+}
+float heartCode(float col, float row){
+if(col < 0.0 || col > 8.0 || row < 0.0 || row > 6.0) return 0.0;
+vec2 m = heartRowMasks(row);
+return mod(floor(m.x / exp2(col) + 0.01), 2.0) + mod(floor(m.y / exp2(col) + 0.01), 2.0) * 2.0;
+}
+vec3 codeColor(float code){
+return code > 2.5 ? uRippleColor1 : (code > 1.5 ? uRippleColor2 : uRippleColor0);
+}
+float rboxCov(vec2 p, vec2 a, vec2 b, float r, float aa){
+vec2 c = (a + b) * 0.5; vec2 h = max((b - a) * 0.5, vec2(0.0));
+r = min(r, min(h.x, h.y));
+vec2 q = abs(p - c) - h + r;
+float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+return 1.0 - smoothstep(-aa, aa, d);
+}
+float pixQ(float col, float row){
+float spread = uLogoSpread;
+float d = bayer4(vec2(col, row)) * spread + hash21(vec2(col, row) * 3.7) * 0.03;
+return clamp((uLogoP - d) / max(1.0 - spread - 0.03, 0.05), 0.0, 1.0);
+}
+vec3 logoPass(vec2 pf, vec3 fieldCol){
+vec2 grid = uGridMul * 15.0;
+vec2 g = pf * grid; vec2 o = uLogoOrigin * grid;
+vec2 cd = vec2(g.x - o.x, o.y - g.y);
+float ppc = uLogoPPC;
+float lGap = uLogoPitch - uLogoSize;
+float cellsW = ceil((9.0 * uLogoPitch - lGap) / uLogoCellPx), cellsH = ceil((7.0 * uLogoPitch) / uLogoCellPx);
+if(cd.x < 0.0 || cd.y < 0.0 || cd.x >= cellsW || cd.y >= cellsH) return fieldCol;
+vec2 cell = floor(cd); vec2 lc = cd - cell;
+float pxU = 1.0 / uLogoCellPx;
+float anyH = 0.0, qSum = 0.0;
+for(int a = 0; a < 2; a++) for(int b = 0; b < 2; b++){
+if(float(a) < ppc && float(b) < ppc){
+float cc = cell.x * ppc + float(a), rr = cell.y * ppc + float(b);
+if(heartCode(cc, rr) > 0.5){ anyH += 1.0; qSum += pixQ(cc, rr); }
+}
+}
+if(anyH < 0.5) return fieldCol;
+float qCell = qSum / anyH;
+float jx = clamp(floor(lc.x * uLogoCellPx / uLogoPitch), 0.0, ppc - 1.0);
+float jy = clamp(floor((lc.y * uLogoCellPx - lGap) / uLogoPitch), 0.0, ppc - 1.0);
+float col = cell.x * ppc + jx, row = cell.y * ppc + jy;
+float code = heartCode(col, row);
+float isH = step(0.5, code);
+float q = isH > 0.5 ? pixQ(col, row) : qCell;
+float lock = smoothstep(0.0, 0.20, q);
+float on   = smoothstep(0.15, 0.55, q);
+float fill = smoothstep(0.50, 0.90, q);
+float colT = smoothstep(0.30, 1.00, q);
+float dt   = clamp(uLogoD, 0.0, 1.0);
+float dEnv = exp(-uDegDecay * dt) * (1.0 - dt) * step(0.0001, dt) * uDegAmp;
+float osc  = mix(1.0, cos(dt * 3.14159 * 4.5), clamp(uDegAmp, 0.0, 1.0));
+float morph = dt <= 0.0 ? 0.0 : clamp(1.0 - exp(-uDegDecay * 1.5 * dt) * osc * (1.0 - dt), 0.0, 1.6);
+float hy = cell.y * ppc + lc.y * ppc;
+float hx = cell.x * ppc + lc.x * ppc;
+lc.x += sin(hy * 1.7 - dt * 26.0) * dEnv * 3.0 * pxU;
+lc.y += sin(hx * 1.3 + dt * 19.0) * dEnv * 1.5 * pxU;
+vec2 tMin = vec2(jx * uLogoPitch, lGap + jy * uLogoPitch) * pxU;
+vec2 tMax = tMin + uLogoSize * pxU;
+vec2 tc = (tMin + tMax) * 0.5, th = (tMax - tMin) * 0.5;
+vec2 sMin = tc - th * uSlotScale, sMax = tc + th * uSlotScale;
+vec2 mn = mix(sMin, tMin, morph), mx = mix(sMax, tMax, morph);
+vec2 u = (lc - sMin) / max(sMax - sMin, vec2(1e-4));
+float px5 = lc.x * uDigitSize * 5.0;
+float py5 = (lc.y - (1.0 - 1.0 / uDigitSize)) * uDigitSize * 5.0;
+float pxN = isH > 0.5 ? u.x * 3.0 : px5;
+float pyN = isH > 0.5 ? u.y * 3.0 : py5;
+float nMax = isH > 0.5 ? 2.0 : 4.0;
+float j = floor(pxN), i = floor(pyN);
+float x = fract(pxN), y = fract(pyN);
+float inGlyph = step(0.0, j) * step(j, nMax) * step(0.0, i) * step(i, nMax);
+float tick = floor(iTime * 9.0);
+float lit = step(hash21(vec2(col, row) * 5.17 + cell * 7.13 + vec2(i, j) * 1.31 + vec2(tick * 0.37, tick * 0.11)), mix(0.35, 1.0, on));
+float dotB = mix((0.2 + y * 0.8) * (0.75 + x * 0.25), 1.0, fill) * lit * inGlyph;
+float rad = 3.0 * pxU * mix(fill * 0.5, 1.0, clamp(morph, 0.0, 1.0)), aa = 0.8 * pxU;
+vec2 ca = vec2(cos(dt * 31.0), sin(dt * 23.0)) * dEnv * 4.0 * pxU;
+float covR = rboxCov(lc + ca, mn, mx, rad, aa);
+float covG = rboxCov(lc, mn, mx, rad, aa);
+float covB = rboxCov(lc - ca, mn, mx, rad, aa);
+float inSub = step(sMin.x, lc.x) * step(lc.x, sMax.x) * step(sMin.y, lc.y) * step(lc.y, sMax.y);
+vec3 shape = mix(vec3(dotB * inSub), vec3(covR, covG, covB), fill);
+vec3 dimC = uTint * 1.7;
+vec3 brand = codeColor(code);
+vec3 nb = codeColor(code > 2.5 ? 2.0 : (code > 1.5 ? 1.0 : 3.0));
+brand = mix(brand, nb, clamp(sin(dt * 17.0 + hx * 0.6) * dEnv * 0.9, 0.0, 1.0));
+float lev = mix(0.22, 1.0, colT);
+vec3 tgt = mix(dimC, brand, colT);
+vec3 mine = uBgColor + (tgt - uBgColor) * shape * lev;
+vec3 empty = mix(uBgColor, dimC, dotB * 0.22 * (1.0 - on));
+vec3 res = isH > 0.5 ? mine : empty;
+return mix(fieldCol, res, lock);
+}
+`;
+function spliceShader(src, anchor, replacement){
+  if(src.indexOf(anchor) < 0) throw new Error('[faulty-terminal] shader anchor not found: ' + anchor.slice(0, 48));
+  return src.replace(anchor, () => replacement);
+}
+// f: { grid, gate, logo } — which features this instance compiles in.
+function buildFragmentShader(f){
+  if(!f.grid && !f.gate && !f.logo) return fragmentShader;
+  let s = fragmentShader;
+  const decl = [];
+  if(f.grid) decl.push('uniform vec2  uGridShift;');
+  if(f.gate) decl.push('uniform float uRippleGate;');
+  if(f.logo) decl.push(LOGO_UNIFORMS);
+  s = spliceShader(s, 'uniform float uMwpGlitch;\n', 'uniform float uMwpGlitch;\n' + decl.join('\n') + '\n');
+  if(f.grid){
+    // Cell edges move with uGridShift. digit() and the MWP-letter overlay
+    // sample the same shifted p; the per-glyph brand colour follows the same
+    // cells so a glyph never splits into two colours.
+    s = spliceShader(s, 'float digit(vec2 p){\n', 'float digit(vec2 p){\np += uGridShift;\n');
+    s = spliceShader(s, 'vec2 s_c = floor(p * grid_c) / grid_c;\nvec2 pc = fract(p * grid_c) * uDigitSize;',
+      'vec2 pS = p + uGridShift;\nvec2 s_c = floor(pS * grid_c) / grid_c;\nvec2 pc = fract(pS * grid_c) * uDigitSize;');
+    s = spliceShader(s, 'vec2 bs = floor(uv * uScale * bgrid) / bgrid;',
+      'vec2 bs = floor((uv * uScale + uGridShift) * bgrid) / bgrid;');
+  }
+  if(f.gate){
+    // uRippleGate 1 = the v1.10.1 reveal; 0 = the ring pulses over a field
+    // that is already showing (no reveal front on glyphs or MWP letters).
+    s = spliceShader(s, 'loadFactor = smoothstep(-0.05 - buildHash * 0.35, 0.25, edge);',
+      'loadFactor = mix(1.0, smoothstep(-0.05 - buildHash * 0.35, 0.25, edge), uRippleGate);');
+    s = spliceShader(s, 'if(uMwpReveal >= 0.999) return 1.0;',
+      'if(uMwpReveal >= 0.999 || uRippleGate < 0.5) return 1.0;');
+  }
+  if(f.logo){
+    s = spliceShader(s, '\nvoid main(){\n', LOGO_GLSL + 'void main(){\n');
+    s = spliceShader(s, 'if(uVignette > 0.001){\nvec2 vq',
+      'if(uLogoOn > 0.5) col = logoPass(' + (f.grid ? 'p + uGridShift' : 'p') + ', col);\nif(uVignette > 0.001){\nvec2 vq');
+  }
+  return s;
+}
+// Barrel mapping shared with the shader: screen uv -> sampled uv.
+function barrelUv(u, v, k){
+  const cx = u * 2 - 1, cy = v * 2 - 1, r2 = cx * cx + cy * cy;
+  return [(cx * (1 + k * r2)) * 0.5 + 0.5, (cy * (1 + k * r2)) * 0.5 + 0.5];
+}
+// The tilt transform scales the canvas by 1.06 about its centre.
+const TILT_SCALE = 1.06;
+// setParam keys for the v1.11.0 uniforms (only present when compiled in).
+const FEATURE_PARAMS = { rippleGate: 'uRippleGate', logoSpread: 'uLogoSpread', logoSlot: 'uSlotScale',
+  degaussAmp: 'uDegAmp', degaussDecay: 'uDegDecay' };
 const HEX_RE = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i;
 function hexToRgb(hex, fallback){
   let h = (hex||'').replace('#','').trim();
@@ -634,6 +840,17 @@ function createStaticInstance(ctn, opts, reason, bg){
     getParam(key){ return opts[key]; },
     retrigger(){},
     ready: null,
+    // v1.11.0 API: no-ops. resolveLogo still resolves and fires its event so a
+    // site timeline waiting on it carries on (with its HTML logo showing).
+    relayout(){}, setFieldProgress(){}, setLogoProgress(){}, setDegaussProgress(){},
+    setLogoVisible(){}, holdFullScale(){},
+    resolveLogo(){
+      return new Promise(resolve => setTimeout(() => {
+        const detail = { instance: api, static: true, reducedMotion: false, skipped: true };
+        ctn.dispatchEvent(new CustomEvent('faulty-terminal:logo-resolved', { bubbles: true, detail }));
+        resolve(detail);
+      }, 0));
+    },
   };
   api.ready = new Promise(resolve => {
     // Async, like the animated path, so listeners added right after init() see it.
@@ -718,9 +935,38 @@ function createInstance(ctn, opts){
   const WARM_WINDOW = 500;
   let firstWindow = warmOn;   // next autoTune window is the first — fast back-off
   const warmScale = () => Math.max(opts.renderScaleMin, 0.5);
+  // v1.11.0 features. Each one is compiled in only when its option asks for
+  // it (see buildFragmentShader), so with all of them off nothing changes.
+  const gridOn = !!opts.gridLock;
+  let gridEl = gridOn ? safeQuery(opts.gridLock) : null;
+  if(gridOn && !gridEl) console.warn('[faulty-terminal] gridLock: no element matches', opts.gridLock, '— the grid locks once relayout() finds it.');
+  let logoOn = !!opts.logoResolve;
+  if(logoOn && !gridOn){
+    console.warn('[faulty-terminal] logoResolve needs gridLock (the logo element) — logo resolve is off.');
+    logoOn = false;
+  }
+  const gateOn = opts.rippleGate === false || logoOn;
+  const reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const featureUniforms = {};
+  if(gridOn) featureUniforms.uGridShift = {value:new Float32Array([0,0])};
+  if(gateOn) featureUniforms.uRippleGate = {value:opts.rippleGate === false ? 0 : 1};
+  if(logoOn) Object.assign(featureUniforms, {
+    uLogoOn:{value:0},
+    uLogoP:{value:0},
+    uLogoD:{value:0},
+    uLogoPPC:{value:2},
+    uLogoOrigin:{value:new Float32Array([0,0])},
+    uLogoCellPx:{value:36},
+    uLogoPitch:{value:18},
+    uLogoSize:{value:16},
+    uLogoSpread:{value:opts.logoSpread},
+    uDegAmp:{value:opts.degaussAmp},
+    uDegDecay:{value:opts.degaussDecay},
+    uSlotScale:{value:opts.logoSlot},
+  });
   const program = new Program(gl,{
     vertex: vertexShader,
-    fragment: fragmentShader,
+    fragment: buildFragmentShader({ grid: gridOn, gate: gateOn, logo: logoOn }),
     uniforms: {
       iTime:{value:0},
       iResolution:{value:new Color(1,1,1)},
@@ -781,6 +1027,7 @@ function createInstance(ctn, opts){
       uHeartFalloff:{value:opts.heartFalloff??0.8},
       uMwpLegible:{value:opts.mwpLegible??0.22},
       uMwpGlitch:{value:opts.mwpGlitch??0.5},
+      ...featureUniforms,
     }
   });
   const mesh = new Mesh(gl,{geometry,program});
@@ -811,11 +1058,74 @@ function createInstance(ctn, opts){
     program.uniforms.iResolution.value = new Color(gl.canvas.width,gl.canvas.height,gl.canvas.width/gl.canvas.height);
     if(fbProg) makeRTs();
   }
+  // logoFullScale: full render scale, autoTune paused, from the start of the
+  // logo resolve until the hand-off.
+  let fullHold=false;
+  function holdFullScale(on){
+    on=!!on;
+    if(on===fullHold) return;
+    fullHold=on;
+    if(on){ warmActive=false; renderScale=opts.renderScaleMax; }
+    else {
+      renderScale=targetScaleForSize(ctn.offsetWidth,ctn.offsetHeight);
+      fpsCount=0; fpsWindowStart=0; firstWindow=false;
+    }
+    applySize();
+  }
   function resize(){
     renderScale=targetScaleForSize(ctn.offsetWidth,ctn.offsetHeight);
     if(warmActive) renderScale=Math.min(renderScale,warmScale());
+    if(fullHold) renderScale=opts.renderScaleMax;
     applySize();
+    if(gridOn) relayout();
   }
+  // gridLock: square cells of gridLockCellPx CSS px on screen, a cell edge on
+  // (element left, element top − logo gap). Accounts for the tilt transform's
+  // 1.06 scale and the barrel magnification at the element's centre.
+  function relayout(geom){
+    if(!gridOn) return;
+    if(geom && typeof geom==='object'){
+      const keys={pitch:'logoPitch',size:'logoSize',cellPx:'gridLockCellPx',pixelsPerCell:'logoPixelsPerCell'};
+      Object.keys(keys).forEach(k=>{
+        const v=Number(geom[k]!=null?geom[k]:geom[keys[k]]);
+        if(isFinite(v) && v>0) opts[keys[k]]=v;
+      });
+    }
+    if(!gridEl || !gridEl.isConnected){
+      gridEl=safeQuery(opts.gridLock);
+      if(gridEl && gridRO) gridRO.observe(gridEl);
+    }
+    if(!gridEl) return;
+    const cr=ctn.getBoundingClientRect(), er=gridEl.getBoundingClientRect();
+    if(cr.width<1 || cr.height<1) return;
+    const ts=opts.tiltReact ? TILT_SCALE : 1;
+    const W=cr.width*ts, H=cr.height*ts;
+    const left=cr.left+(cr.width-W)/2, top=cr.top+(cr.height-H)/2;
+    const pitch=Number(opts.logoPitch)>0?Number(opts.logoPitch):18;
+    const size=Number(opts.logoSize)>0?Math.min(Number(opts.logoSize),pitch):pitch;
+    const gap=pitch-size;
+    const ppc=Number(opts.logoPixelsPerCell)>=1.5?2:1;
+    const cellPx=Number(opts.gridLockCellPx)>0?Number(opts.gridLockCellPx):pitch*ppc;
+    const k=Number(program.uniforms.uCurvature.value)||0;
+    const sc=Number(program.uniforms.uScale.value)||1;
+    const cx=((er.left+er.width/2-left)/W)*2-1, cy=(1-(er.top+er.height/2-top)/H)*2-1;
+    const gm=program.uniforms.uGridMul.value;
+    gm[0]=W/(sc*15*cellPx*(1+k*(3*cx*cx+cy*cy)));
+    gm[1]=H/(sc*15*cellPx*(1+k*(cx*cx+3*cy*cy)));
+    const tu=(er.left-left)/W, tv=1-(er.top-gap-top)/H;
+    const b=k?barrelUv(tu,tv,k):[tu,tv];
+    const gx=b[0]*sc*gm[0]*15, gy=b[1]*sc*gm[1]*15;
+    const rx=Math.round(gx), ry=Math.round(gy);
+    const sh=program.uniforms.uGridShift.value;
+    sh[0]=(rx-gx)/(gm[0]*15); sh[1]=(ry-gy)/(gm[1]*15);
+    if(logoOn){
+      const u=program.uniforms;
+      u.uLogoOrigin.value[0]=rx/(gm[0]*15); u.uLogoOrigin.value[1]=ry/(gm[1]*15);
+      u.uLogoCellPx.value=cellPx; u.uLogoPitch.value=pitch; u.uLogoSize.value=size; u.uLogoPPC.value=ppc;
+    }
+  }
+  const gridRO = gridOn ? new ResizeObserver(()=>relayout()) : null;
+  if(gridRO && gridEl) gridRO.observe(gridEl);
   new ResizeObserver(resize).observe(ctn);
   resize();
   if(opts.mouseReact){
@@ -895,6 +1205,103 @@ function createInstance(ctn, opts){
   let deferred=false;
   function releaseLoop(){ if(deferred){ deferred=false; start(); } }
   let pageLoadFallback=false;
+  // setFieldProgress(): the site drives the field fade; the built-in page-load
+  // timing and the revealFallback stand down.
+  let fieldDriven=false;
+  function setFieldProgress(p){
+    p=clamp(Number(p)||0,0,1);
+    if(reducedMotion && p>0) p=1;
+    fieldDriven=true;
+    program.uniforms.uUsePageLoadAnimation.value=1;
+    program.uniforms.uPageLoadProgress.value=p;
+    releaseLoop();
+  }
+  // Logo resolve state. logoActive: the shader heart is on screen (between the
+  // first setLogoProgress > 0 and the hand-off).
+  let logoActive=false, logoHidden=false, logoTimeline=null, logoHandoffPending=false;
+  let logoPromise=null, logoResolveFn=null, logoWarned=false;
+  function logoAvailable(){
+    if(logoOn) return true;
+    if(!logoWarned){
+      logoWarned=true;
+      console.warn('[faulty-terminal] logo resolve is off for this instance — set logoResolve: true and gridLock.');
+    }
+    return false;
+  }
+  function setLogoProgress(p){
+    if(!logoAvailable()) return;
+    p=clamp(Number(p)||0,0,1);
+    program.uniforms.uLogoP.value=p;
+    if(reducedMotion || logoHidden) return;   // reduced motion: no resolve, the site's logo is just there
+    if(p>0 && !logoActive){
+      logoActive=true;
+      program.uniforms.uLogoOn.value=1;
+      if(opts.logoFullScale!==false) holdFullScale(true);
+    }
+    releaseLoop();
+  }
+  function setDegaussProgress(d){
+    if(!logoAvailable()) return;
+    program.uniforms.uLogoD.value=clamp(Number(d)||0,0,1);
+  }
+  // false on the hand-off frame: the site's HTML heart takes over.
+  function setLogoVisible(v){
+    if(!logoAvailable()) return;
+    if(v){ logoHidden=false; setLogoProgress(program.uniforms.uLogoP.value); return; }
+    logoHidden=true;
+    logoActive=false;
+    program.uniforms.uLogoOn.value=0;
+    holdFullScale(false);
+  }
+  function finishLogo(skipped){
+    const detail={ instance: api, static: false, reducedMotion, skipped: !!skipped };
+    ctn.dispatchEvent(new CustomEvent('faulty-terminal:logo-resolved',{bubbles:true,detail}));
+    const done=logoResolveFn; logoResolveFn=null; logoPromise=null;
+    if(done) done(detail);
+  }
+  // Convenience: the whole FT side of the resolve on the approved timings.
+  // Resolves (and fires faulty-terminal:logo-resolved) on the hand-off frame.
+  function resolveLogo(timings){
+    if(logoPromise) return logoPromise;
+    logoPromise=new Promise(r=>{ logoResolveFn=r; });
+    const T={ fieldMs:opts.logoFieldMs, holdMs:opts.logoHoldMs, resolveMs:opts.logoResolveMs,
+      degOffset:opts.degaussOffset, degMs:opts.degaussMs, handOffset:opts.logoHandOffset,
+      spread:opts.logoSpread, degAmp:opts.degaussAmp, degDecay:opts.degaussDecay, slot:opts.logoSlot };
+    if(timings && typeof timings==='object') Object.keys(T).forEach(k=>{
+      const v=Number(timings[k]);
+      if(timings[k]!=null && isFinite(v)) T[k]=v;
+    });
+    if(!logoAvailable() || reducedMotion){
+      setFieldProgress(1);
+      setTimeout(()=>finishLogo(true),0);
+      return logoPromise;
+    }
+    const u=program.uniforms;
+    u.uLogoSpread.value=T.spread; u.uDegAmp.value=T.degAmp; u.uDegDecay.value=T.degDecay; u.uSlotScale.value=T.slot;
+    u.uLogoP.value=0; u.uLogoD.value=0;
+    relayout();
+    logoHidden=false;
+    const fieldMs=Math.max(0,T.fieldMs);
+    const resolveStart=fieldMs+Math.max(0,T.holdMs), resolveMs=Math.max(1,T.resolveMs);
+    const degStart=resolveStart+resolveMs+T.degOffset, degMs=Math.max(1,T.degMs);
+    logoTimeline={ t0:-1, fieldMs, resolveStart, resolveMs, degStart, degMs,
+      handoff:Math.max(resolveStart, degStart+degMs+T.handOffset) };
+    setFieldProgress(fieldMs>0?0:1);   // also releases a deferred loop
+    return logoPromise;
+  }
+  function stepLogoTimeline(t){
+    const L=logoTimeline;
+    if(L.t0<0) L.t0=t;
+    const e=t-L.t0;
+    setFieldProgress(L.fieldMs>0?e/L.fieldMs:1);
+    setLogoProgress((e-L.resolveStart)/L.resolveMs);
+    setDegaussProgress((e-L.degStart)/L.degMs);
+    if(e>=L.handoff){
+      logoTimeline=null;
+      setLogoVisible(false);
+      logoHandoffPending=true;   // event fires once this frame is drawn
+    }
+  }
   let fadeDelay=opts.pageLoadDelay||0;
   const fadeDuration=Math.max(0, Number(opts.pageLoadDuration)||0);
   if(opts.ripple){
@@ -908,7 +1315,7 @@ function createInstance(ctn, opts){
       // renders nothing at all — a missing interaction looks identical to a
       // broken component. Fade in instead, so it reads as un-animated.
       if(opts.revealFallback>0) setTimeout(()=>{
-        if(rippleTriggered) return;
+        if(rippleTriggered || fieldDriven) return;
         // The fallback has already waited revealFallback ms — don't stack
         // pageLoadDelay on top of it.
         pageLoadFallback=true; loadStart=0; fadeDelay=0;
@@ -942,6 +1349,7 @@ function createInstance(ctn, opts){
     endWarm(held || !opts.autoTune ? opts.renderScaleMax : renderScale);
   }
   function autoTune(now){
+    if(fullHold) return;
     if(warmActive){ warmTune(now); return; }
     if(!opts.autoTune) return;
     fpsCount++;
@@ -1009,7 +1417,8 @@ function createInstance(ctn, opts){
       program.uniforms.uMwpWaveEnv.value=
         wp>=1?0:(wp<0.1?wp*10:Math.pow(1-(wp-0.1)/0.9,2));
     }
-    if(opts.pageLoadAnimation && (!opts.ripple || pageLoadFallback)){
+    if(logoTimeline) stepLogoTimeline(t);
+    if(opts.pageLoadAnimation && (!opts.ripple || pageLoadFallback) && !fieldDriven){
       if(loadStart===0) loadStart=t;
       const elapsed=t-loadStart-fadeDelay;
       program.uniforms.uPageLoadProgress.value=
@@ -1027,6 +1436,7 @@ function createInstance(ctn, opts){
         tiltTargetX=(0.5-smoothMouse.y)*maxDeg;
         tiltTargetY=(smoothMouse.x-0.5)*maxDeg;
       }
+      if(logoActive){ tiltTargetX=0; tiltTargetY=0; }   // shader heart and HTML heart must line up
       tiltX+=(tiltTargetX-tiltX)*0.05;
       tiltY+=(tiltTargetY-tiltY)*0.05;
       gl.canvas.style.transform=`perspective(600px) rotateX(${tiltX.toFixed(2)}deg) rotateY(${tiltY.toFixed(2)}deg) scale(1.06)`;
@@ -1050,6 +1460,7 @@ function createInstance(ctn, opts){
       markReady(api);
       ctn.dispatchEvent(new CustomEvent('faulty-terminal:ready',{bubbles:true,detail:{instance:api}}));
     }
+    if(logoHandoffPending){ logoHandoffPending=false; finishLogo(false); }
     if(deferred) stop();   // deferLoop: that was the one primer frame
   }
   function start(){
@@ -1092,6 +1503,11 @@ function createInstance(ctn, opts){
     if(key==='tiltStrength') tiltStrengthRef=val;
     if(key==='tiltReact'){ opts.tiltReact=val; if(!val) gl.canvas.style.transform=''; }
     if(key==='timeScale') opts.timeScale=val;
+    const xu=FEATURE_PARAMS[key];
+    if(xu && program.uniforms[xu]){
+      opts[key]=val;
+      program.uniforms[xu].value = key==='rippleGate' ? (val===false?0:1) : val;
+    }
   }
   function getParam(key){
     const uName=unifMap[key];
@@ -1131,7 +1547,9 @@ function createInstance(ctn, opts){
     rippleFadeStartTime=-1;
     mwpWaveStartTime=-1;
   }
-  const api = { ctn, opts, setParam, getParam, retrigger, ready, hasRipple: opts.ripple };
+  const api = { ctn, opts, setParam, getParam, retrigger, ready, hasRipple: opts.ripple,
+    relayout, setFieldProgress, setLogoProgress, setDegaussProgress, setLogoVisible, resolveLogo,
+    holdFullScale, reducedMotion };
   return api;
 }
 function buildDebugPanel(instances){
