@@ -1,5 +1,14 @@
 # Changelog
 
+## Site wiring: FTLogoResolveFooter 1.12.3 (4 November 2026)
+
+- The Home page heart now starts once the page has loaded (capped at 2.5s), in
+  every browser. As the page becomes ready, Webflow builds its scroll
+  interactions: about half a second of solid work in Safari, so when the heart
+  was already playing it froze, most visibly at the start of the resolve.
+  `WAIT_FOR_LOAD` at the top of `webflow/home-logo-resolve-footer.js`: `'all'`,
+  `'safari'` or `'off'`.
+
 ## 1.12.2 — smoother first run in Safari
 
 - **The full-scale hold no longer lands mid-animation.** With the logo resolve

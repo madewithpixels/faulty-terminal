@@ -1,4 +1,5 @@
-// faulty-terminal logo resolve, part 2 of 2, for v1.12.0+ (written by Claude, 30 Oct 2026; hero-only 31 Oct 2026).
+// faulty-terminal logo resolve, part 2 of 2, for v1.12.0+ (written by Claude, 30 Oct 2026; hero-only 31 Oct 2026;
+// waits for page load 4 Nov 2026, FTLogoResolveFooter 1.12.3).
 // faulty-terminal runs the whole sequence on one clock - resolve, degauss, hand-off to this HTML heart, flare and
 // ripple - so the debug panel (backtick) can play, scrub and tweak all of it. This script sets the options, sizes the
 // heart in device pixels and starts it after first paint.
@@ -39,11 +40,24 @@
     return main ? main.getBoundingClientRect().top + scrollY - y > lb : y < innerHeight / 2;
   }
 
+  // Start once the page has loaded (4 Nov 2026). As the page becomes ready, Webflow builds all its scroll interactions:
+  // about half a second of solid work in Safari (~0.15s in Chrome). Nothing can draw meanwhile, so when the heart was
+  // already playing it froze mid-resolve. Capped, so a slow load never leaves the hero empty for long.
+  // WAIT_FOR_LOAD: 'all' (every browser), 'safari' (Safari and iPhone/iPad only) or 'off' (start straight away, as before).
+  var WAIT_FOR_LOAD = 'all', LOAD_CAP_MS = 2500;
+  function whenLoaded(go) {
+    var safari = /^((?!chrome|chromium|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
+    if (WAIT_FOR_LOAD === 'off' || (WAIT_FOR_LOAD === 'safari' && !safari) || d.readyState === 'complete') return go();
+    var done = false, run = function () { if (!done) { done = true; go(); } };
+    addEventListener('load', function () { setTimeout(run, 0); }); // after the page's own load handlers
+    setTimeout(run, LOAD_CAP_MS);
+  }
+
   d.addEventListener('faulty-terminal:ready', function (e) {
     var inst = e.detail && e.detail.instance;
     if (ft || !inst || inst.ctn !== term) return;
     ft = inst;
-    requestAnimationFrame(function () { requestAnimationFrame(function () { // after first paint
+    whenLoaded(function () { requestAnimationFrame(function () { requestAnimationFrame(function () { // after first paint
       place();
       if (ft.resolveLogo && ft.logoTimeline) {
         ft.resolveLogo(); // hides the heart itself until the hand-off
@@ -54,7 +68,7 @@
         })();
       }
       show();
-    }); });
+    }); }); });
   });
   addEventListener('faulty-terminal:cdn-error', show);
   setTimeout(function () { if (!ft) show(); }, 6000);
