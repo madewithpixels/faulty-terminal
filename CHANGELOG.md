@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.12.2 — smoother first run in Safari
+
+- **The full-scale hold no longer lands mid-animation.** With the logo resolve
+  on, the switch to full render scale used to happen at the start of the
+  resolve (and back at the hand-off), resizing the canvas and rebuilding the
+  phosphor buffers on a visible frame. It now happens when the timeline starts,
+  while the field is still invisible, and is released once the ripple has faded.
+- **First-run warm-up.** On the first play, one offscreen draw with the logo
+  mid-resolve and mid-degauss lets the browser do its first-use work before
+  anything is on screen; the logo element's pixels and colours are read then
+  too, not on the hand-off frame. Safari stalled for a frame the first time the
+  resolve and the degauss ran (never on replays).
+- **No reallocation at the same size.** Setting the canvas to the size it
+  already has is now a no-op; before, it reallocated the canvas and three
+  full-size render targets.
+- **Render targets are freed.** Old phosphor targets were never deleted, so
+  every size change leaked three full-size textures.
+- **Frame cap slack.** `targetFPS` now allows 2ms of slack (as the warm start
+  already did), so a frame that arrives a hair early is no longer skipped (a
+  dropped frame at 60Hz, and 40fps instead of 60 at 120Hz).
+- Debug panel: scrubbing back into the timeline takes the full-scale hold
+  again; scrubbing to the end releases it.
+
 ## 1.12.1 — pop-out survives reloads
 
 - The debug panel's pop-out (⧉) is now an ordinary popup window, so it stays

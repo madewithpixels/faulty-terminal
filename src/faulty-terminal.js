@@ -941,7 +941,10 @@ function createInstance(ctn, opts){
   let tiltX=0, tiltY=0, tiltTargetX=0, tiltTargetY=0, tiltStrengthRef=opts.tiltStrength??0.4;
   let gyroActive=false;
   let renderScale = opts.renderScaleMax;
-  const frameInterval = 1000/(opts.targetFPS||30);
+  // v1.12.2: 2ms slack, as warmInterval has. Without it a frame that arrives a
+  // hair early (16.6ms at 60Hz) was skipped, a dropped frame; at 120Hz the cap
+  // could fall to every third frame (40fps) instead of every second (60fps).
+  const frameInterval = Math.max(0, 1000/(opts.targetFPS||30) - 2);
   let lastFrame=0, fpsCount=0, fpsWindowStart=0;
   // warmStart state. warmActive: capped/low-res phase in force. warmUntil is
   // measured from init (page life), not from loop start: a loop held back by
@@ -1057,8 +1060,21 @@ function createInstance(ctn, opts){
     if(px*s*s > opts.maxPixels) s = Math.sqrt(opts.maxPixels/px);
     return clamp(s,opts.renderScaleMin,opts.renderScaleMax);
   }
+  // v1.12.2: free the old targets before making new ones (they used to leak on
+  // every size change, three full-size textures at a time).
+  function freeRT(rt){
+    if(!rt) return;
+    try{
+      (rt.textures||[rt.texture]).forEach(t=>{ if(t && t.texture) gl.deleteTexture(t.texture); });
+      if(rt.buffer) gl.deleteFramebuffer(rt.buffer);
+      if(rt.depthBuffer) gl.deleteRenderbuffer(rt.depthBuffer);
+      if(rt.stencilBuffer) gl.deleteRenderbuffer(rt.stencilBuffer);
+      if(rt.depthStencilBuffer) gl.deleteRenderbuffer(rt.depthStencilBuffer);
+    }catch(e){}
+  }
   function makeRTs(){
     const o={width:gl.canvas.width,height:gl.canvas.height,depth:false};
+    freeRT(rtScene); freeRT(rtA); freeRT(rtB);
     rtScene=new RenderTarget(gl,o); rtA=new RenderTarget(gl,o); rtB=new RenderTarget(gl,o);
   }
   function ensurePhosphor(){
@@ -1071,9 +1087,16 @@ function createInstance(ctn, opts){
     cpMesh=new Mesh(gl,{geometry,program:cpProg});
     makeRTs();
   }
+  // v1.12.2: a no-op when the drawing size is unchanged. Re-setting the canvas
+  // size reallocates its buffer (and makeRTs three more) even at the same size,
+  // which cost a visible frame in Safari.
+  let sizedW=-1, sizedH=-1;
   function applySize(){
     const w=Math.max(1,ctn.offsetWidth), h=Math.max(1,ctn.offsetHeight);
-    renderer.setSize(Math.max(1,Math.floor(w*renderScale)),Math.max(1,Math.floor(h*renderScale)));
+    const sw=Math.max(1,Math.floor(w*renderScale)), sh=Math.max(1,Math.floor(h*renderScale));
+    if(sw===sizedW && sh===sizedH) return;
+    sizedW=sw; sizedH=sh;
+    renderer.setSize(sw,sh);
     gl.canvas.style.width='100%'; gl.canvas.style.height='100%';
     program.uniforms.iResolution.value = new Color(gl.canvas.width,gl.canvas.height,gl.canvas.width/gl.canvas.height);
     if(fbProg) makeRTs();
@@ -1338,10 +1361,10 @@ function createInstance(ctn, opts){
     const handed=e>=S.h, active=!handed && e>S.r0;
     u.uLogoOn.value=active?1:0;
     logoHidden=handed;
-    if(active!==logoActive){
-      logoActive=active;
-      if(opts.logoFullScale!==false) holdFullScale(active);
-    }
+    // v1.12.2: the full-scale hold is no longer switched here (at the resolve
+    // start and the hand-off) — it is taken in logoPlay() while the field is
+    // still invisible, and released once the ripple has finished.
+    logoActive=active;
     if(!opts.logoFlare) return;
     setLogoEl(handed||LT.ghost ? '' : 'hidden', !handed&&LT.ghost ? '0.45' : '');
     const ft=e-S.h;
@@ -1364,7 +1387,39 @@ function createInstance(ctn, opts){
     logoRender();
     if(!LT.handed && LT.e>=S.h){ LT.handed=true; logoHandoffPending=true; }   // event fires once this frame is drawn
     if(opts.logoRipple && !LT.rippled && LT.e>=S.rp){ LT.rippled=true; retrigger(); }
-    if(LT.e>=S.done){ LT.playing=false; LT.e=S.done; LT.base=LT.e; LT.tStart=-1; }
+    if(LT.e>=S.done){ LT.playing=false; LT.e=S.done; LT.base=LT.e; LT.tStart=-1; fullReleasePending=true; }
+  }
+  // v1.12.2: release the full-scale hold after the timeline, once the ripple
+  // (if any) has faded, so the size change never lands mid-animation.
+  let fullReleasePending=false;
+  function maybeReleaseFull(){
+    if(!fullReleasePending || LT.playing) return;
+    if(opts.ripple && program.uniforms.uRippleActive.value>0.5) return;
+    fullReleasePending=false;
+    holdFullScale(false);
+  }
+  // v1.12.2: first-run warm-up. Safari stalled for a frame the first time the
+  // resolve and the degauss ran (never on replays): one offscreen draw with the
+  // logo on, mid-resolve and mid-degauss, makes the browser do that first-use
+  // work at the start of the timeline, while the field is still invisible.
+  // The logo element's pixels and colours are read here too, not on the
+  // hand-off frame.
+  let logoWarmed=false;
+  function warmLogo(){
+    if(logoWarmed) return;
+    logoWarmed=true;
+    if(opts.logoFlare) logoPixels().forEach(p=>{ if(!p.glow) p.glow=getComputedStyle(p.el).backgroundColor; });
+    let rt=null;
+    const u=program.uniforms, keep=[u.uLogoOn.value,u.uLogoP.value,u.uLogoD.value];
+    try{
+      rt=new RenderTarget(gl,{width:gl.canvas.width,height:gl.canvas.height,depth:false});
+      u.uLogoOn.value=1; u.uLogoP.value=0.6; u.uLogoD.value=0.3;
+      renderer.render({scene:mesh,target:rt});
+      if(fbProg){ fbProg.uniforms.tS.value=rt.texture; fbProg.uniforms.tP.value=rt.texture; renderer.render({scene:fbMesh,target:rtA}); }
+      gl.flush();
+    }catch(e){}
+    u.uLogoOn.value=keep[0]; u.uLogoP.value=keep[1]; u.uLogoD.value=keep[2];
+    freeRT(rt);
   }
   function logoPlay(){
     LT.S=logoSchedule(logoTimings());
@@ -1377,6 +1432,9 @@ function createInstance(ctn, opts){
     relayout();
     logoHidden=false;
     if(opts.logoFlare) setLogoEl('hidden','');
+    fullReleasePending=false;
+    if(opts.logoFullScale!==false && !reducedMotion) holdFullScale(true);
+    warmLogo();
     setFieldProgress(LT.S.f1>0?0:1);   // also releases a deferred loop
   }
   // Convenience: the whole FT side of the resolve on the approved timings.
@@ -1415,6 +1473,8 @@ function createInstance(ctn, opts){
       if(!LT.S) LT.S=logoSchedule(logoTimings());
       LT.playing=false; LT.e=clamp(Number(ms)||0,0,LT.S.done); LT.base=LT.e; LT.tStart=-1;
       LT.handed=LT.e>=LT.S.h; LT.rippled=LT.e>=LT.S.rp;
+      if(LT.e>=LT.S.done) fullReleasePending=true;
+      else if(opts.logoFullScale!==false && !reducedMotion){ fullReleasePending=false; holdFullScale(true); }
       logoRender();
     },
     setSpeed(x){ LT.base=LT.e; LT.tStart=-1; LT.speed=Math.max(0.01, Number(x)||1); },
@@ -1544,6 +1604,7 @@ function createInstance(ctn, opts){
         wp>=1?0:(wp<0.1?wp*10:Math.pow(1-(wp-0.1)/0.9,2));
     }
     if(LT.playing) stepLogo(t);
+    maybeReleaseFull();
     if(opts.pageLoadAnimation && (!opts.ripple || pageLoadFallback) && !fieldDriven){
       if(loadStart===0) loadStart=t;
       const elapsed=t-loadStart-fadeDelay;
