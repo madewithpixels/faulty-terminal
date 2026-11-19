@@ -1,12 +1,68 @@
 # Changelog
 
-## 1.12.1 — new tuning defaults
+## 1.12.3 — new tuning defaults
 
 - Baked `TUNING` and `LOGO` defaults updated to the values approved on 19 Nov 2026
-  (ripple, aftershock, MWP, brand, field and logo-resolve timeline). No new options,
-  no API changes. Set any value through `FaultyTerminalConfig` / `data-ft-*` to
-  keep the 1.12.0 look.
-- `@v1.12.0` and its `dist/` are untouched.
+  (ripple, aftershock, MWP, brand, field and the logo-resolve timeline). They
+  replace the logo-resolve defaults set in 1.12.1. No new options, no API changes.
+  Set any value through `FaultyTerminalConfig` / `data-ft-*` to keep the 1.12.2 look.
+- Includes everything on `fix/safari-first-run-stutter` (1.12.1 pop-out and logo
+  fixes, 1.12.2 first-run smoothing). The 1.12.3 site-wiring note below is a
+  separate version number: `FTLogoResolveFooter`, not this package.
+- The `v1.12.1` tag on `main` is the defaults-only build without those changes.
+  Don't use it on the sites.
+
+## Site wiring: FTLogoResolveFooter 1.12.3 (4 November 2026)
+
+- The Home page heart now starts once the page has loaded (capped at 2.5s), in
+  every browser. As the page becomes ready, Webflow builds its scroll
+  interactions: about half a second of solid work in Safari, so when the heart
+  was already playing it froze, most visibly at the start of the resolve.
+  `WAIT_FOR_LOAD` at the top of `webflow/home-logo-resolve-footer.js`: `'all'`,
+  `'safari'` or `'off'`.
+
+## 1.12.2 — smoother first run in Safari
+
+- **The full-scale hold no longer lands mid-animation.** With the logo resolve
+  on, the switch to full render scale used to happen at the start of the
+  resolve (and back at the hand-off), resizing the canvas and rebuilding the
+  phosphor buffers on a visible frame. It now happens when the timeline starts,
+  while the field is still invisible, and is released once the ripple has faded.
+- **First-run warm-up.** On the first play, one offscreen draw with the logo
+  mid-resolve and mid-degauss lets the browser do its first-use work before
+  anything is on screen; the logo element's pixels and colours are read then
+  too, not on the hand-off frame. Safari stalled for a frame the first time the
+  resolve and the degauss ran (never on replays).
+- **No reallocation at the same size.** Setting the canvas to the size it
+  already has is now a no-op; before, it reallocated the canvas and three
+  full-size render targets.
+- **Render targets are freed.** Old phosphor targets were never deleted, so
+  every size change leaked three full-size textures.
+- **Frame cap slack.** `targetFPS` now allows 2ms of slack (as the warm start
+  already did), so a frame that arrives a hair early is no longer skipped (a
+  dropped frame at 60Hz, and 40fps instead of 60 at 120Hz).
+- Debug panel: scrubbing back into the timeline takes the full-scale hold
+  again; scrubbing to the end releases it.
+
+## 1.12.1 — pop-out survives reloads
+
+- The debug panel's pop-out (⧉) is now an ordinary popup window, so it stays
+  open when the page reloads or you move to another page. The next page with a
+  terminal reconnects to it without a click, and in the meantime it shows
+  "reconnecting…". Closing the window puts the panel back in the page.
+- Shift-click ⧉ for the 1.12.0 behaviour: a Picture-in-Picture window (Chrome,
+  Edge) that stays on top of everything but closes on every reload, because
+  the browser ties it to the page that opened it.
+- **New logo resolve defaults** (tuned in the panel, 30 Oct 2026): a much
+  quicker resolve. Field fade-in 550, hold 0, resolve 400, pixel stagger 0.31,
+  degauss vs fill −70, degauss length 380, degauss amp 2, degauss settle 6.5,
+  hand-off vs end −140 (as before), flare stagger 220, flare intensity 0.65,
+  flare blur 22, ripple 30 ms after the hand-off. Hand-off now lands about
+  1.1 s after `resolveLogo()` (was 2.9 s).
+- **Copy values works when the panel is popped out.** It now copies from the
+  window that holds the panel (with a fallback), and says so when it can't.
+- Wider ranges for the resolve (from 100 ms) and degauss amp (up to 4).
+- With the logo options off, frames are unchanged from 1.12.0.
 
 ## 1.12.0 — logo timeline in the debug panel
 

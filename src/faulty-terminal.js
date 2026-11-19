@@ -135,14 +135,14 @@ const DEFAULTS = {
   logoPixelsPerCell: 2,     // logo pixels per glyph, each way (1 or 2)
   logoSpread: 0.31,         // pixel stagger of the resolve (4×4 ordered)
   logoSlot: 0.96,           // pixel size before the degauss, fraction of final
-  degaussAmp: 1.1,          // degauss strength
-  degaussDecay: 2.75,         // degauss settle speed
+  degaussAmp: 1.1,            // degauss strength
+  degaussDecay: 2.75,        // degauss settle speed
   // resolveLogo() timeline, ms (approved 30 Oct 2026)
   logoFieldMs: 550,         // field fade-in
-  logoHoldMs: 50,          // hold before the resolve starts
-  logoResolveMs: 400,      // resolve progress 0→1
-  degaussOffset: -70,      // degauss starts this long after the resolve ends (negative = before)
-  degaussMs: 420,          // degauss progress 0→1
+  logoHoldMs: 50,            // hold before the resolve starts
+  logoResolveMs: 400,       // resolve progress 0→1
+  degaussOffset: -70,       // degauss starts this long after the resolve ends (negative = before)
+  degaussMs: 420,           // degauss progress 0→1
   logoHandOffset: -140,     // hand-off this long after the degauss ends (negative = before)
   // Render at renderScaleMax with autoTune paused from the start of the
   // resolve until the hand-off (uneven pixel columns below full scale).
@@ -157,7 +157,7 @@ const DEFAULTS = {
   logoFlareMs: 270,         // flare length per pixel
   logoFlareSpread: 160,     // flare stagger across the pixels
   logoRippleAt: 70,         // ripple, ms after the hand-off
-  logoFlareIntensity: 0.35,  // flare peak brightness above normal (1.6 = ×2.6)
+  logoFlareIntensity: 0.35, // flare peak brightness above normal (0.65 = ×1.65)
   logoFlareBlur: 10,        // flare glow radius at its peak, px
   // false: the ripple ring pulses (brightness, colour, warp) over a field that
   // is already showing, without the reveal front hiding glyphs or letters.
@@ -941,7 +941,10 @@ function createInstance(ctn, opts){
   let tiltX=0, tiltY=0, tiltTargetX=0, tiltTargetY=0, tiltStrengthRef=opts.tiltStrength??0.4;
   let gyroActive=false;
   let renderScale = opts.renderScaleMax;
-  const frameInterval = 1000/(opts.targetFPS||30);
+  // v1.12.2: 2ms slack, as warmInterval has. Without it a frame that arrives a
+  // hair early (16.6ms at 60Hz) was skipped, a dropped frame; at 120Hz the cap
+  // could fall to every third frame (40fps) instead of every second (60fps).
+  const frameInterval = Math.max(0, 1000/(opts.targetFPS||30) - 2);
   let lastFrame=0, fpsCount=0, fpsWindowStart=0;
   // warmStart state. warmActive: capped/low-res phase in force. warmUntil is
   // measured from init (page life), not from loop start: a loop held back by
@@ -1057,8 +1060,21 @@ function createInstance(ctn, opts){
     if(px*s*s > opts.maxPixels) s = Math.sqrt(opts.maxPixels/px);
     return clamp(s,opts.renderScaleMin,opts.renderScaleMax);
   }
+  // v1.12.2: free the old targets before making new ones (they used to leak on
+  // every size change, three full-size textures at a time).
+  function freeRT(rt){
+    if(!rt) return;
+    try{
+      (rt.textures||[rt.texture]).forEach(t=>{ if(t && t.texture) gl.deleteTexture(t.texture); });
+      if(rt.buffer) gl.deleteFramebuffer(rt.buffer);
+      if(rt.depthBuffer) gl.deleteRenderbuffer(rt.depthBuffer);
+      if(rt.stencilBuffer) gl.deleteRenderbuffer(rt.stencilBuffer);
+      if(rt.depthStencilBuffer) gl.deleteRenderbuffer(rt.depthStencilBuffer);
+    }catch(e){}
+  }
   function makeRTs(){
     const o={width:gl.canvas.width,height:gl.canvas.height,depth:false};
+    freeRT(rtScene); freeRT(rtA); freeRT(rtB);
     rtScene=new RenderTarget(gl,o); rtA=new RenderTarget(gl,o); rtB=new RenderTarget(gl,o);
   }
   function ensurePhosphor(){
@@ -1071,9 +1087,16 @@ function createInstance(ctn, opts){
     cpMesh=new Mesh(gl,{geometry,program:cpProg});
     makeRTs();
   }
+  // v1.12.2: a no-op when the drawing size is unchanged. Re-setting the canvas
+  // size reallocates its buffer (and makeRTs three more) even at the same size,
+  // which cost a visible frame in Safari.
+  let sizedW=-1, sizedH=-1;
   function applySize(){
     const w=Math.max(1,ctn.offsetWidth), h=Math.max(1,ctn.offsetHeight);
-    renderer.setSize(Math.max(1,Math.floor(w*renderScale)),Math.max(1,Math.floor(h*renderScale)));
+    const sw=Math.max(1,Math.floor(w*renderScale)), sh=Math.max(1,Math.floor(h*renderScale));
+    if(sw===sizedW && sh===sizedH) return;
+    sizedW=sw; sizedH=sh;
+    renderer.setSize(sw,sh);
     gl.canvas.style.width='100%'; gl.canvas.style.height='100%';
     program.uniforms.iResolution.value = new Color(gl.canvas.width,gl.canvas.height,gl.canvas.width/gl.canvas.height);
     if(fbProg) makeRTs();
@@ -1338,10 +1361,10 @@ function createInstance(ctn, opts){
     const handed=e>=S.h, active=!handed && e>S.r0;
     u.uLogoOn.value=active?1:0;
     logoHidden=handed;
-    if(active!==logoActive){
-      logoActive=active;
-      if(opts.logoFullScale!==false) holdFullScale(active);
-    }
+    // v1.12.2: the full-scale hold is no longer switched here (at the resolve
+    // start and the hand-off) — it is taken in logoPlay() while the field is
+    // still invisible, and released once the ripple has finished.
+    logoActive=active;
     if(!opts.logoFlare) return;
     setLogoEl(handed||LT.ghost ? '' : 'hidden', !handed&&LT.ghost ? '0.45' : '');
     const ft=e-S.h;
@@ -1364,7 +1387,39 @@ function createInstance(ctn, opts){
     logoRender();
     if(!LT.handed && LT.e>=S.h){ LT.handed=true; logoHandoffPending=true; }   // event fires once this frame is drawn
     if(opts.logoRipple && !LT.rippled && LT.e>=S.rp){ LT.rippled=true; retrigger(); }
-    if(LT.e>=S.done){ LT.playing=false; LT.e=S.done; LT.base=LT.e; LT.tStart=-1; }
+    if(LT.e>=S.done){ LT.playing=false; LT.e=S.done; LT.base=LT.e; LT.tStart=-1; fullReleasePending=true; }
+  }
+  // v1.12.2: release the full-scale hold after the timeline, once the ripple
+  // (if any) has faded, so the size change never lands mid-animation.
+  let fullReleasePending=false;
+  function maybeReleaseFull(){
+    if(!fullReleasePending || LT.playing) return;
+    if(opts.ripple && program.uniforms.uRippleActive.value>0.5) return;
+    fullReleasePending=false;
+    holdFullScale(false);
+  }
+  // v1.12.2: first-run warm-up. Safari stalled for a frame the first time the
+  // resolve and the degauss ran (never on replays): one offscreen draw with the
+  // logo on, mid-resolve and mid-degauss, makes the browser do that first-use
+  // work at the start of the timeline, while the field is still invisible.
+  // The logo element's pixels and colours are read here too, not on the
+  // hand-off frame.
+  let logoWarmed=false;
+  function warmLogo(){
+    if(logoWarmed) return;
+    logoWarmed=true;
+    if(opts.logoFlare) logoPixels().forEach(p=>{ if(!p.glow) p.glow=getComputedStyle(p.el).backgroundColor; });
+    let rt=null;
+    const u=program.uniforms, keep=[u.uLogoOn.value,u.uLogoP.value,u.uLogoD.value];
+    try{
+      rt=new RenderTarget(gl,{width:gl.canvas.width,height:gl.canvas.height,depth:false});
+      u.uLogoOn.value=1; u.uLogoP.value=0.6; u.uLogoD.value=0.3;
+      renderer.render({scene:mesh,target:rt});
+      if(fbProg){ fbProg.uniforms.tS.value=rt.texture; fbProg.uniforms.tP.value=rt.texture; renderer.render({scene:fbMesh,target:rtA}); }
+      gl.flush();
+    }catch(e){}
+    u.uLogoOn.value=keep[0]; u.uLogoP.value=keep[1]; u.uLogoD.value=keep[2];
+    freeRT(rt);
   }
   function logoPlay(){
     LT.S=logoSchedule(logoTimings());
@@ -1377,6 +1432,9 @@ function createInstance(ctn, opts){
     relayout();
     logoHidden=false;
     if(opts.logoFlare) setLogoEl('hidden','');
+    fullReleasePending=false;
+    if(opts.logoFullScale!==false && !reducedMotion) holdFullScale(true);
+    warmLogo();
     setFieldProgress(LT.S.f1>0?0:1);   // also releases a deferred loop
   }
   // Convenience: the whole FT side of the resolve on the approved timings.
@@ -1415,6 +1473,8 @@ function createInstance(ctn, opts){
       if(!LT.S) LT.S=logoSchedule(logoTimings());
       LT.playing=false; LT.e=clamp(Number(ms)||0,0,LT.S.done); LT.base=LT.e; LT.tStart=-1;
       LT.handed=LT.e>=LT.S.h; LT.rippled=LT.e>=LT.S.rp;
+      if(LT.e>=LT.S.done) fullReleasePending=true;
+      else if(opts.logoFullScale!==false && !reducedMotion){ fullReleasePending=false; holdFullScale(true); }
       logoRender();
     },
     setSpeed(x){ LT.base=LT.e; LT.tStart=-1; LT.speed=Math.max(0.01, Number(x)||1); },
@@ -1544,6 +1604,7 @@ function createInstance(ctn, opts){
         wp>=1?0:(wp<0.1?wp*10:Math.pow(1-(wp-0.1)/0.9,2));
     }
     if(LT.playing) stepLogo(t);
+    maybeReleaseFull();
     if(opts.pageLoadAnimation && (!opts.ripple || pageLoadFallback) && !fieldDriven){
       if(loadStart===0) loadStart=t;
       const elapsed=t-loadStart-fadeDelay;
@@ -1948,11 +2009,25 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
       LOGO_KNOBS.forEach(([key])=>{ out+=`  ${key}: ${+(+inst().getParam(key)).toFixed(3)},\n`; });
       out+='};';
     }
-    navigator.clipboard.writeText(out).catch(()=>console.log(out));
-    const btn=panel.querySelector('#ft-copy');
-    const orig=btn.textContent;
-    btn.textContent='✓ copied!';
-    setTimeout(()=>btn.textContent=orig,1500);
+    // Copy from the window that holds the panel: when it is popped out, the
+    // page isn't focused and its clipboard refuses the write.
+    const btn=panel.querySelector('#ft-copy'), orig='⎘ copy values';
+    const doc=panel.ownerDocument, win=doc.defaultView||window;
+    const done=ok=>{ btn.textContent=ok?'✓ copied!':'✗ not copied, see console'; setTimeout(()=>btn.textContent=orig,1800); };
+    const fallback=()=>{
+      let ok=false;
+      try{
+        const ta=doc.createElement('textarea'); ta.value=out;
+        ta.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;';
+        panel.appendChild(ta); ta.focus(); ta.select(); ok=doc.execCommand('copy'); ta.remove();
+      }catch(e){ ok=false; }
+      if(!ok) console.log(out);
+      done(ok);
+    };
+    try{
+      const cb=win.navigator && win.navigator.clipboard;
+      if(cb && cb.writeText) cb.writeText(out).then(()=>done(true), fallback); else fallback();
+    }catch(e){ fallback(); }
   });
   function setOpen(open){
     panel.classList.toggle('ft-hidden', !open);
@@ -2061,7 +2136,7 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
   }
   panel.querySelector('.ft-win').addEventListener('click',e=>{
     const b=e.target.closest('button'); if(!b) return;
-    if(b.id==='ft-pop') return popWin ? popWin.close() : popOut();
+    if(b.id==='ft-pop') return popWin ? popWin.close() : popOut(e.shiftKey);
     setMode(b.getAttribute('data-mode'));
   });
   const head=panel.querySelector('#ft-dbh');
@@ -2076,39 +2151,71 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
     const up=()=>{ head.removeEventListener('pointermove',move); head.removeEventListener('pointerup',up); panel.classList.remove('ft-dragging'); saveStore(); };
     head.addEventListener('pointermove',move); head.addEventListener('pointerup',up);
   });
-  // Pop out: Document Picture-in-Picture (Chrome/Edge) gives an always-on-top
-  // window you can drag anywhere, outside the browser too; elsewhere, a popup.
-  async function popOut(){
+  // Pop out: a named popup window you can drag anywhere, outside the browser
+  // too. It survives reloads and page changes: the old page leaves it open
+  // with a "reconnecting" note, and the next page with a terminal finds it by
+  // name (no click needed for an existing window) and moves its panel in.
+  // Shift-click ⧉ for Document Picture-in-Picture instead (Chrome/Edge):
+  // always on top, but the browser closes it on every reload.
+  const POP_NAME='ft-debug-panel', POP_FLAG='ft-debug-popped';
+  const popFlag=v=>{ try{ v ? sessionStorage.setItem(POP_FLAG,'1') : sessionStorage.removeItem(POP_FLAG); }catch(e){} };
+  let popPip=false;
+  async function popOut(pip){
     let w=null;
     const h=Math.min(1000,(screen.availHeight||900)-80);
-    try{
-      if(window.documentPictureInPicture) w=await window.documentPictureInPicture.requestWindow({ width:400, height:h });
-    }catch(e){ w=null; }
-    if(!w) w=window.open('', 'ft-debug', 'popup,width=400,height='+h);
-    if(!w) return;
+    if(pip){
+      try{ if(window.documentPictureInPicture) w=await window.documentPictureInPicture.requestWindow({ width:400, height:h }); }catch(e){ w=null; }
+    }
+    popPip=!!w;
+    if(!w) w=window.open('', POP_NAME, 'popup,width=400,height='+h);
+    if(w) attachPop(w);
+  }
+  function attachPop(w){
+    let d;
+    try{ d=w.document; d.body; }catch(e){ return false; } // window went cross-origin
     popWin=w;
-    const d=w.document;
     d.title='ft debug';
-    const st=document.getElementById('ft-debug-styles');
-    d.head.appendChild(st.cloneNode(true));
+    d.querySelectorAll('#ft-debug-styles').forEach(n=>n.remove());
+    d.head.appendChild(document.getElementById('ft-debug-styles').cloneNode(true));
+    d.body.innerHTML='';
     d.body.style.cssText='margin:0;background:#080c10;';
     panel.classList.remove('ft-hidden');
     panel.classList.add('ft-popped');
     d.body.appendChild(panel);
     panel.querySelector('#ft-pop').setAttribute('aria-pressed','true');
     panel.querySelector('#ft-pop').title='Back into the page';
+    if(!popPip) popFlag(true);
     const back=()=>{
-      if(!popWin) return;
-      popWin=null;
+      if(popWin!==w) return;
+      popWin=null; popFlag(false);
       panel.classList.remove('ft-popped');
       document.body.appendChild(panel);
       panel.querySelector('#ft-pop').setAttribute('aria-pressed','false');
-      panel.querySelector('#ft-pop').title='Pop out into its own window';
-      setMode(store.mode); tickLogo();
+      panel.querySelector('#ft-pop').title='Pop out into its own window (shift-click: always on top, closes on reload)';
+      setMode(store.mode); setOpen(true);
     };
     w.addEventListener('pagehide', back);
     const iv=setInterval(()=>{ if(w.closed){ clearInterval(iv); back(); } }, 500);
     tickLogo();
+    return true;
+  }
+  // This page is going away (reload / navigation): leave the popup open for the next page.
+  window.addEventListener('pagehide',()=>{
+    if(!popWin || popPip) return;
+    try{
+      const d=popWin.document;
+      d.body.innerHTML='<div style="font:12px/1.5 ui-monospace,Menlo,monospace;color:#7fa;padding:16px;">ft debug · reconnecting…<br><span style="color:#577">The panel comes back when a page with a terminal loads. Close this window to stop popping out.</span></div>';
+    }catch(e){}
+  });
+  function reattachPop(){
+    let flag=null; try{ flag=sessionStorage.getItem(POP_FLAG); }catch(e){}
+    if(!flag) return false;
+    let w=null;
+    try{ w=window.open('', POP_NAME); }catch(e){ w=null; } // finds the open window; blocked (null) if it was closed
+    if(!w || w.closed){ popFlag(false); return false; }
+    popPip=false;
+    if(attachPop(w)) return true;
+    popFlag(false); return false;
   }
   const keep=panel.querySelector('#ft-keep');
   keep.checked=!!store.keep;
@@ -2120,16 +2227,17 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
   setMode(store.mode||'float');
   loadInst(0);
   setOpen(!!(store.keep && store.open));
+  reattachPop();
 }
 // Debug panel controls for the logo timeline: key, label, min, max, step.
 const LOGO_KNOBS = [
   ['logoFieldMs', 'field fade-in', 200, 2500, 50],
   ['logoHoldMs', 'hold', 0, 1500, 50],
-  ['logoResolveMs', 'resolve', 400, 4000, 50],
+  ['logoResolveMs', 'resolve', 100, 4000, 50],
   ['logoSpread', 'pixel stagger', 0, 0.5, 0.01],
   ['degaussOffset', 'degauss vs fill', -1500, 800, 10],
   ['degaussMs', 'degauss length', 150, 2000, 10],
-  ['degaussAmp', 'degauss amp', 0, 2, 0.05],
+  ['degaussAmp', 'degauss amp', 0, 4, 0.05],
   ['degaussDecay', 'degauss settle', 1, 12, 0.25],
   ['logoSlot', 'pre-degauss size', 0.5, 1, 0.01],
   ['logoHandOffset', 'hand-off vs end', -800, 600, 10],

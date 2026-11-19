@@ -130,3 +130,16 @@ sequence. Going to v1.12.0 on the site needs:
 
 Both must change together: the 1.12.0 footer script expects faulty-terminal to
 run the flare.
+
+## Hero only (31 Oct 2026, FTLogoResolveFooter 1.12.2)
+
+The hero is sticky, so the terminal shows through the whole page. When the
+Home page opens already scrolled past the hero (reload, back/forward, the
+project back button's restore, or a `#link`), the content already covers the
+heart, so the resolve doesn't play. The field fades in as usual, then the
+timeline jumps to its end (`logoTimeline.seek(schedule.done)`): heart shown,
+no resolve, flare or ripple. The script works out the start position before
+the browser restores the scroll, from the navigation type, the `mwp-home-y`
+value the page transition script saves, and the `#hash` target. The rule:
+"in the hero" means `.content-main` hasn't reached the bottom of `.mwp-logo`.
+Source: `webflow/home-logo-resolve-footer.js`.
