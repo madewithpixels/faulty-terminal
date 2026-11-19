@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.12.3 — new tuning defaults
+
+- Baked `TUNING` and `LOGO` defaults updated to the values approved on 19 Nov 2026
+  (ripple, aftershock, MWP, brand, field and the logo-resolve timeline). They
+  replace the logo-resolve defaults set in 1.12.1. No new options, no API changes.
+  Set any value through `FaultyTerminalConfig` / `data-ft-*` to keep the 1.12.2 look.
+- Includes everything on `fix/safari-first-run-stutter` (1.12.1 pop-out and logo
+  fixes, 1.12.2 first-run smoothing). The 1.12.3 site-wiring note below is a
+  separate version number: `FTLogoResolveFooter`, not this package.
+- The `v1.12.1` tag on `main` is the defaults-only build without those changes.
+  Don't use it on the sites.
+
 ## Site wiring: FTLogoResolveFooter 1.12.3 (4 November 2026)
 
 - The Home page heart now starts once the page has loaded (capped at 2.5s), in
