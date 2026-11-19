@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.12.1 — new tuning defaults
+
+- Baked `TUNING` and `LOGO` defaults updated to the values approved on 19 Nov 2026
+  (ripple, aftershock, MWP, brand, field and logo-resolve timeline). No new options,
+  no API changes. Set any value through `FaultyTerminalConfig` / `data-ft-*` to
+  keep the 1.12.0 look.
+- `@v1.12.0` and its `dist/` are untouched.
+
 ## 1.12.0 — logo timeline in the debug panel
 
 - **Debug panel window.** Dock it left or right at full height, float and drag

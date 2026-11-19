@@ -28,13 +28,13 @@ const TUNING = {
   rippleWarp: 1.00,
   impactBurst: 2.00,
   // mwp
-  mwpColorStrength: 0.65,
+  mwpColorStrength: 0.29,
   mwpDensity: 0.04,
   mwpFlickerSpeed: 0.40,
   mwpWaveDuration: 1050,
   mwpWaveAt: 0.05,
   heartStrength: 2.00,
-  heartScale: 1.00,
+  heartScale: 2.25,
   heartFalloff: 1.50,
   mwpLegible: 0.89,
   mwpGlitch: 0.85,
@@ -48,20 +48,20 @@ const TUNING = {
   brandScale: 4.00,
   brandAngle: 0.15,
   // field
-  brightness: 0.15,
+  brightness: 0.10,
   glyphGamma: 3.60,
-  scanlineIntensity: 1.00,
-  glitchAmount: 1.90,
-  flickerAmount: 1.10,
+  scanlineIntensity: 0.80,
+  glitchAmount: 0.70,
+  flickerAmount: 1.55,
   noiseAmp: 1.00,
   curvature: 0.30,
   mouseStrength: 0.60,
   timeScale: 0.45,
   digitSize: 1.25,
-  tiltStrength: 0.40,
+  tiltStrength: 0.65,
   // field fx
   vignette: 0.00,
-  retraceSweep: 1.00,
+  retraceSweep: 0.50,
   noiseDetail: 0.35,
   phosphorOn: true,
   phosphor: 560,
@@ -133,16 +133,16 @@ const DEFAULTS = {
   logoPitch: 18,            // logo pixel pitch, CSS px (site passes device-px-exact values)
   logoSize: 16,             // logo pixel size, CSS px
   logoPixelsPerCell: 2,     // logo pixels per glyph, each way (1 or 2)
-  logoSpread: 0.41,         // pixel stagger of the resolve (4×4 ordered)
-  logoSlot: 0.53,           // pixel size before the degauss, fraction of final
-  degaussAmp: 1.8,          // degauss strength
-  degaussDecay: 11,         // degauss settle speed
+  logoSpread: 0.31,         // pixel stagger of the resolve (4×4 ordered)
+  logoSlot: 0.96,           // pixel size before the degauss, fraction of final
+  degaussAmp: 1.1,          // degauss strength
+  degaussDecay: 2.75,         // degauss settle speed
   // resolveLogo() timeline, ms (approved 30 Oct 2026)
-  logoFieldMs: 500,         // field fade-in
-  logoHoldMs: 250,          // hold before the resolve starts
-  logoResolveMs: 1200,      // resolve progress 0→1
-  degaussOffset: -420,      // degauss starts this long after the resolve ends (negative = before)
-  degaussMs: 1550,          // degauss progress 0→1
+  logoFieldMs: 550,         // field fade-in
+  logoHoldMs: 50,          // hold before the resolve starts
+  logoResolveMs: 400,      // resolve progress 0→1
+  degaussOffset: -70,      // degauss starts this long after the resolve ends (negative = before)
+  degaussMs: 420,          // degauss progress 0→1
   logoHandOffset: -140,     // hand-off this long after the degauss ends (negative = before)
   // Render at renderScaleMax with autoTune paused from the start of the
   // resolve until the hand-off (uneven pixel columns below full scale).
@@ -154,11 +154,11 @@ const DEFAULTS = {
   logoFlare: false,
   logoRipple: false,
   logoPixels: null,         // selector for the lit pixels, in grid order (default: the heart mask's cells)
-  logoFlareMs: 350,         // flare length per pixel
-  logoFlareSpread: 500,     // flare stagger across the pixels
-  logoRippleAt: 60,         // ripple, ms after the hand-off
-  logoFlareIntensity: 1.6,  // flare peak brightness above normal (1.6 = ×2.6)
-  logoFlareBlur: 14,        // flare glow radius at its peak, px
+  logoFlareMs: 270,         // flare length per pixel
+  logoFlareSpread: 160,     // flare stagger across the pixels
+  logoRippleAt: 70,         // ripple, ms after the hand-off
+  logoFlareIntensity: 0.35,  // flare peak brightness above normal (1.6 = ×2.6)
+  logoFlareBlur: 10,        // flare glow radius at its peak, px
   // false: the ripple ring pulses (brightness, colour, warp) over a field that
   // is already showing, without the reveal front hiding glyphs or letters.
   rippleGate: true,
