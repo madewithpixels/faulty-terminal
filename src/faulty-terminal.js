@@ -3628,8 +3628,20 @@ if(typeof window !== 'undefined'){
   window.FaultyTerminal = Object.assign(window.FaultyTerminal || {}, API);
 }
 function boot(){ init(document); }
+// v1.13.3: also wait while deferred scripts are still running (readyState is
+// already 'interactive' then, but DOMContentLoaded has not fired), so a
+// deferred page script that comes after this one in the document (e.g. one
+// that sets data-ft-* options) is always in place before init.
+function domContentLoadedPending(){
+  if(document.readyState === 'loading') return true;
+  if(document.readyState !== 'interactive') return false;
+  try{
+    const nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+    return !!nav && !(nav.domContentLoadedEventStart > 0);
+  }catch(e){ return false; }
+}
 if(typeof document !== 'undefined'){
-  if(document.readyState === 'loading'){
+  if(domContentLoadedPending()){
     document.addEventListener('DOMContentLoaded', boot);
   } else {
     boot();

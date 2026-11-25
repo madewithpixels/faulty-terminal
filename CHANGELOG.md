@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.13.3 — start after every deferred script
+
+- faulty-terminal now also waits for DOMContentLoaded when it runs as a deferred
+  script, so a deferred page script after it in the document (the Home lift
+  wiring sets `data-ft-logo-lift`) is always in place before it starts. Moving
+  the loader tag from a registered script into the site footer put it before
+  the page's own footer code, and the lift resolve didn't start.
+
 ## 1.13.2 — cell size from CSS (Webflow variables)
 
 - `cellPx` also takes a CSS value: `'22px'`, `'1.4rem'`, `'clamp(…)'` or
