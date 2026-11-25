@@ -17,20 +17,48 @@ const TUNING = {
   rippleBrightness: 0.10,
   rippleBrightnessFalloff: 0.14,
   rippleFadeOut: 375,
+  rippleCurve: 1, // 0 linear · 1 ease in-out · 2 ease out · 3 expo out · 4 cubic in-out
+  rippleReach: 2.50,
+  // ripple shape
+  rippleRingWidth: 0.31,
+  rippleAspect: 1.23,
+  rippleWobbleFreq: 2.85,
+  rippleGlass: 0.00,
+  rippleEdgeSoft: 0.09,
+  rippleInnerFalloff: 0.42,
+  rippleHotCore: 0.05,
+  rippleEchoes: 1,
+  rippleEchoGap: 0.17,
+  rippleEchoDecay: 0.55,
+  // ripple colour
+  rippleColorMode: 0, // 0 vertical · 1 horizontal · 2 radial bands · 3 around origin · 4 over time · 5 per glyph
+  rippleColorScale: 1.05,
+  rippleColorOffset: 0.00,
+  rippleColorSpin: 0.00,
+  rippleColorBlend: 0.57,
   // aftershock
   aftershock: true,
   aftershockTriggerAt: 0.05,
   aftershockDelay: 0,
   aftershockDuration: 1350,
   aftershockStrength: 0.30,
+  aftershockReach: 0,
+  aftershockWidth: 0,
+  aftershockTrail: 0.23,
+  aftershockColorShift: 0,
   // ripple fx
   rippleWobble: 1.00,
   rippleWarp: 1.00,
   impactBurst: 2.00,
+  // pulse
+  pulseAttackMs: 380,
+  pulseHoldMs: 250,
+  pulseDecayMs: 1500,
+  rasterBloom: 0.019,
   // mwp
-  mwpColorStrength: 0.29,
-  mwpDensity: 0.04,
-  mwpFlickerSpeed: 0.40,
+  mwpColorStrength: 0.46,
+  mwpDensity: 0.19,
+  mwpFlickerSpeed: 0.25,
   mwpWaveDuration: 1050,
   mwpWaveAt: 0.05,
   heartStrength: 2.00,
@@ -54,17 +82,35 @@ const TUNING = {
   glitchAmount: 0.70,
   flickerAmount: 1.55,
   noiseAmp: 1.00,
-  curvature: 0.30,
+  curvature: 0.20,
   mouseStrength: 0.60,
   timeScale: 0.45,
   digitSize: 1.25,
   tiltStrength: 0.65,
   // field fx
-  vignette: 0.00,
+  vignette: 0.35,
   retraceSweep: 0.50,
   noiseDetail: 0.35,
   phosphorOn: true,
   phosphor: 560,
+  chromaticAberration: 0.00,
+  dither: 1.20,
+  overscanMargin: 0.020,
+};
+// The pulse peak from the first lift-resolve session (24 Nov 2026). Not on by
+// default: the panel's "load preset" puts it in pulsePeak to tune from.
+const PULSE_PRESET = {
+    mwpColorStrength: 0.83,
+    mwpDensity: 0.48,
+    brandStrength: 0.96,
+    brandSoftness: 0.38,
+    brandAngle: 0.93,
+    brightness: 2.00,
+    glyphGamma: 3.80,
+    scanlineIntensity: 0.55,
+    glitchAmount: 2.20,
+    flickerAmount: 0.15,
+    noiseAmp: 0.70,
 };
 // structural params (don't touch unless you know what you're doing)
 const DEFAULTS = {
@@ -72,8 +118,6 @@ const DEFAULTS = {
   scale: 2,
   gridMul: [2, 1],
   pause: false,
-  chromaticAberration: 0,
-  dither: 0,
   tint: '#366777',
   bgColor: '#2b464e',
   mouseReact: true,
@@ -162,24 +206,85 @@ const DEFAULTS = {
   // false: the ripple ring pulses (brightness, colour, warp) over a field that
   // is already showing, without the reveal front hiding glyphs or letters.
   rippleGate: true,
+  // --- v1.13.0-dev ---
+  // overscan: the canvas is drawn larger than the container so the tilt never
+  // shows its edge and the vignette sits on what you see. 'auto' = just enough
+  // to cover the maximum tilt (+ overscanMargin); a number ≥ 1 = that scale;
+  // false = v1.12 (canvas at the container size, scale(1.06)).
+  overscan: 'auto',
+  // Lift resolve: the heart forms from the field's own cells (decode → fill),
+  // each pixel lifts off the glass (M, W, P in turn), glides to the HTML
+  // heart's pixel and the HTML takes over on a frame where the two are the
+  // same. logoLift = selector of the HTML heart (a 9×7 grid of pixel elements).
+  logoLift: null,
+  // (Michael's tuning, 25 Nov 2026; the timings it shares with the v1.11
+  // resolve are in LIFT_DEFAULTS, applied only when logoLift is set)
+  logoOrigin: 'target',     // 'target' forms beside the HTML heart · 'centre' forms mid-field
+  logoPinMs: 890,           // decode the letters and fill the cells
+  logoLiftHoldMs: 60,       // beat between the fill and the first lift
+  logoLiftMs: 920,          // a pixel leaving the glass
+  logoStaggerMs: 180,       // M → W → P
+  logoRowStagger: 46,       // per row inside a colour
+  logoTravelMs: 520,        // glide to the HTML pixel (critically damped, no overshoot)
+  logoDepth: 0.17,          // how much a lifted pixel grows toward you
+  logoBloom: 1.5,          // phosphor bloom while off the glass (gone by the landing)
+  logoQuiet: 0.46,          // calm the field cells around the forming heart
+  degaussPurity: 1.3,       // colour-purity blotches during the degauss
+  // flat start: the glass is flat while the heart forms, then curves
+  logoCurveRamp: true,
+  logoCurveFrom: 0,         // curvature at the start
+  logoCurveOffset: -150,       // ramp start, ms from the first lift
+  logoCurveMs: 1680,         // ramp length
+  // Pulse: on the ripple impact the field ramps to pulsePeak (an object of any
+  // slider keys) and decays back to where it was. null = no pulse.
+  pulsePeak: null,
 };
+// Lift-resolve values for the options it shares with the v1.11 resolve, so
+// the shipped resolve keeps its approved timings.
+const LIFT_DEFAULTS = { logoFieldMs: 270, logoHoldMs: 0, degaussOffset: -400, degaussMs: 2570,
+  degaussAmp: 1.6, degaussDecay: 7.1, logoRippleAt: -540 };
 const SLIDERS = [
   ['rippleDuration', null, 'duration (ms)', 300, 5000, 50, 'RIPPLE'],
   ['rippleColorFalloff', 'uRippleColorFalloff', 'trail curve', 0.1, 6.0, 0.1, 'RIPPLE'],
   ['rippleColorAmbient', 'uRippleColorAmbient', 'trail strength', 0.0, 1.0, 0.01, 'RIPPLE'],
-  ['rippleColorStrength', 'uRippleColorStrength', 'colour strength', 0.0, 2.0, 0.05, 'RIPPLE'],
+  ['rippleColorStrength', 'uRippleColorStrength', 'colour strength', 0.0, 4.0, 0.05, 'RIPPLE'],
   ['blendMode', 'uBlendMode', 'blend mode', 0, 3, 1, 'RIPPLE', 'select'],
   ['rippleBrightness', 'uRippleBrightness', 'glyph boost', 0.0, 4.0, 0.05, 'RIPPLE'],
   ['rippleBrightnessFalloff','uRippleBrightnessFalloff','glow width', 0.01, 1.5, 0.01, 'RIPPLE'],
   ['rippleFadeOut', null, 'trail fade (ms)', 0, 800, 25, 'RIPPLE'],
+  ['rippleCurve', null, 'speed curve', 0, 4, 1, 'RIPPLE', 'select'],
+  ['rippleReach', 'uRippleReach', 'reach', 0.5, 5.0, 0.05, 'RIPPLE'],
+  ['rippleRingWidth', 'uRippleRingWidth', 'colour ring width', 0.0, 1.5, 0.01, 'RIPPLE SHAPE'],
+  ['rippleAspect', 'uRippleAspect', 'shape (wide ↔ tall)', 0.3, 3.0, 0.01, 'RIPPLE SHAPE'],
+  ['rippleWobbleFreq', 'uRippleWobbleFreq', 'wobble lobes', 0.2, 4.0, 0.05, 'RIPPLE SHAPE'],
+  ['rippleGlass', 'uRippleGlass', 'glow on glass', 0.0, 1.0, 0.01, 'RIPPLE SHAPE'],
+  ['rippleEdgeSoft', 'uRippleEdgeSoft', 'outer edge soft', 0.0, 0.5, 0.01, 'RIPPLE SHAPE'],
+  ['rippleInnerFalloff', 'uRippleInnerFalloff', 'inner edge soft', 0.0, 1.0, 0.01, 'RIPPLE SHAPE'],
+  ['rippleHotCore', 'uRippleHotCore', 'hot core', 0.0, 1.0, 0.01, 'RIPPLE SHAPE'],
+  ['rippleEchoes', 'uRippleEchoes', 'echo rings', 0, 3, 1, 'RIPPLE SHAPE'],
+  ['rippleEchoGap', 'uRippleEchoGap', 'echo gap', 0.02, 0.8, 0.01, 'RIPPLE SHAPE'],
+  ['rippleEchoDecay', 'uRippleEchoDecay', 'echo fade', 0.0, 1.0, 0.01, 'RIPPLE SHAPE'],
+  ['rippleColorMode', 'uRippleColorMode', 'distribution', 0, 5, 1, 'RIPPLE COLOUR', 'select'],
+  ['rippleColorScale', 'uRippleColorScale', 'colour spread', 0.1, 4.0, 0.05, 'RIPPLE COLOUR'],
+  ['rippleColorOffset', 'uRippleColorOffset', 'palette shift', 0.0, 1.0, 0.01, 'RIPPLE COLOUR'],
+  ['rippleColorSpin', 'uRippleColorSpin', 'colour cycle', 0.0, 3.0, 0.05, 'RIPPLE COLOUR'],
+  ['rippleColorBlend', 'uRippleColorBlend', 'band blend', 0.0, 1.0, 0.01, 'RIPPLE COLOUR'],
   ['aftershock', null, 'enabled', null, null, null, 'AFTERSHOCK', 'bool'],
   ['aftershockTriggerAt', null, 'trigger at', 0.0, 1.0, 0.05, 'AFTERSHOCK'],
   ['aftershockDelay', null, 'delay (ms)', 0, 2000, 25, 'AFTERSHOCK'],
   ['aftershockDuration', null, 'duration (ms)', 100, 3000, 50, 'AFTERSHOCK'],
   ['aftershockStrength', 'uAftershockStrength', 'strength', 0.0, 2.0, 0.05, 'AFTERSHOCK'],
+  ['aftershockReach', 'uAftershockReach', 'reach (0 = ripple)', 0.0, 5.0, 0.05, 'AFTERSHOCK'],
+  ['aftershockWidth', 'uAftershockWidth', 'ring width (0 = ripple)', 0.0, 1.5, 0.01, 'AFTERSHOCK'],
+  ['aftershockTrail', 'uAftershockTrail', 'trail', 0.0, 1.0, 0.01, 'AFTERSHOCK'],
+  ['aftershockColorShift', 'uAftershockColorShift', 'palette shift', 0.0, 1.0, 0.01, 'AFTERSHOCK'],
   ['rippleWobble', 'uRippleWobble', 'wave wobble', 0.0, 1.0, 0.05, 'RIPPLE FX'],
   ['rippleWarp', 'uRippleWarp', 'shock warp', 0.0, 1.0, 0.05, 'RIPPLE FX'],
-  ['impactBurst', 'uImpactBurst', 'impact burst', 0.0, 2.0, 0.05, 'RIPPLE FX'],
+  ['impactBurst', 'uImpactBurst', 'impact burst', 0.0, 4.0, 0.05, 'RIPPLE FX'],
+  ['pulseAttackMs', null, 'attack (ms)', 0, 800, 10, 'PULSE'],
+  ['pulseHoldMs', null, 'hold (ms)', 0, 2000, 10, 'PULSE'],
+  ['pulseDecayMs', null, 'decay (ms)', 100, 5000, 50, 'PULSE'],
+  ['rasterBloom', null, 'raster bloom', 0.0, 0.04, 0.001, 'PULSE'],
   ['mwpColorStrength', 'uMwpColorStrength', 'colour', 0.0, 1.0, 0.01, 'MWP'],
   ['mwpDensity', 'uMwpDensity', 'density', 0.0, 0.6, 0.01, 'MWP'],
   ['mwpFlickerSpeed', 'uMwpFlicker', 'timing', 0.0, 4.0, 0.05, 'MWP'],
@@ -212,10 +317,15 @@ const SLIDERS = [
   ['noiseDetail', 'uNoiseDetail', 'noise detail', 0.0, 1.0, 0.05, 'FIELD FX'],
   ['phosphorOn', null, 'phosphor', null, null, null, 'FIELD FX', 'bool'],
   ['phosphor', null, 'phosphor (ms)', 0, 600, 10, 'FIELD FX'],
+  ['chromaticAberration', 'uChromaticAberration', 'chroma split', 0.0, 4.0, 0.05, 'FIELD FX'],
+  ['dither', 'uDither', 'dither', 0.0, 4.0, 0.1, 'FIELD FX'],
+  ['overscanMargin', null, 'overscan margin', 0.0, 0.3, 0.005, 'FIELD FX'],
 ];
 const SELECT_OPTIONS = {
   blendMode: ['screen','add','overlay','soft'],
   brandMode: ['off','whole field','gradient sweep','per glyph'],
+  rippleCurve: ['linear','ease in-out','ease out','expo out','cubic in-out'],
+  rippleColorMode: ['vertical','horizontal','radial bands','around origin','over time','per glyph'],
 };
 const vertexShader = `
 attribute vec2 position;
@@ -275,6 +385,26 @@ uniform float uVignette;
 uniform float uSweep;
 uniform float uNoiseDetail;
 uniform float uBlendMode;
+uniform float uRippleReach;
+uniform float uRippleRingWidth;
+uniform float uRippleEdgeSoft;
+uniform float uRippleHotCore;
+uniform float uRippleEchoes;
+uniform float uRippleEchoGap;
+uniform float uRippleEchoDecay;
+uniform float uRippleColorMode;
+uniform float uRippleColorScale;
+uniform float uRippleColorOffset;
+uniform float uRippleColorSpin;
+uniform float uRippleColorBlend;
+uniform float uRippleAspect;
+uniform float uRippleInnerFalloff;
+uniform float uRippleWobbleFreq;
+uniform float uRippleGlass;
+uniform float uAftershockReach;
+uniform float uAftershockWidth;
+uniform float uAftershockTrail;
+uniform float uAftershockColorShift;
 uniform float uMwpDensity;
 uniform float uMwpFlicker;
 uniform float uMwpReveal;
@@ -289,14 +419,50 @@ float hash21(vec2 p){ p = fract(p * 234.56); p += dot(p, p + 34.56); return frac
 float ringWobble(vec2 dh){
 if(uRippleWobble < 0.001) return 1.0;
 float ang = atan(dh.y, dh.x + 0.0001);
-return 1.0 + (sin(ang * 5.0 + iTime * 1.7) * 0.6
-+ sin(ang * 9.0 - iTime * 2.3) * 0.4) * uRippleWobble * 0.07;
+return 1.0 + (sin(ang * 5.0 * uRippleWobbleFreq + iTime * 1.7) * 0.6
++ sin(ang * 9.0 * uRippleWobbleFreq - iTime * 2.3) * 0.4) * uRippleWobble * 0.07;
 }
 vec3 blendGlow(vec3 base, vec3 glow){
 if(uBlendMode < 0.5) return 1.0 - (1.0 - base) * (1.0 - glow);
 if(uBlendMode < 1.5) return base + glow;
 if(uBlendMode < 2.5) return mix(2.0*base*glow, 1.0-2.0*(1.0-base)*(1.0-glow), step(vec3(0.5), base));
 return (1.0 - 2.0*glow) * base * base + 2.0 * glow * base;
+}
+// v1.13.0-dev ripple shape + colour. Defaults reproduce the v1.12 ring.
+float rippleLead(float edge){
+return uRippleEdgeSoft > 0.0001 ? smoothstep(-uRippleEdgeSoft, 0.0, edge) : step(0.0, edge);
+}
+float rippleRingW(float edge, float w){
+float rw = w > 0.0001 ? w : (uRippleRingWidth > 0.0001 ? uRippleRingWidth : uRippleBrightnessFalloff);
+float ib = rw * (1.0 - clamp(uRippleInnerFalloff, 0.0, 1.0));
+float r = rippleLead(edge) * (1.0 - smoothstep(ib, rw + 0.0001, edge));
+for(int n = 1; n <= 3; n++){
+if(float(n) > uRippleEchoes + 0.5) break;
+float e = edge - float(n) * uRippleEchoGap;
+r += rippleLead(e) * (1.0 - smoothstep(ib, rw + 0.0001, e)) * pow(uRippleEchoDecay, float(n));
+}
+return r;
+}
+float rippleRing(float edge){ return rippleRingW(edge, 0.0); }
+vec3 palette3(float t){
+float tt = mod(t, 3.0);
+float i = floor(tt); float f = tt - i;
+float b = uRippleColorBlend;
+float w = clamp((f - 0.5 * (1.0 - b)) / max(b, 0.001), 0.0, 1.0);
+vec3 a = i < 0.5 ? uRippleColor0 : (i < 1.5 ? uRippleColor1 : uRippleColor2);
+vec3 c = i < 0.5 ? uRippleColor1 : (i < 1.5 ? uRippleColor2 : uRippleColor0);
+return mix(a, c, w);
+}
+vec3 rippleTint(vec2 uv, float dist, float prog, float ring, float shift){
+float t;
+if(uRippleColorMode < 0.5) t = 2.0 - 2.0 * clamp(uv.y, 0.0, 1.0);
+else if(uRippleColorMode < 1.5) t = 2.0 * clamp(uv.x, 0.0, 1.0);
+else if(uRippleColorMode < 2.5) t = dist * 3.0;
+else if(uRippleColorMode < 3.5){ vec2 d = uv - uRippleOrigin; d.x *= iResolution.z; d.y *= uRippleAspect; t = (atan(d.y, d.x + 0.0001) / 6.2831853 + 0.5) * 3.0; }
+else if(uRippleColorMode < 4.5) t = prog * 3.0;
+else { vec2 pg = uGridMul * 15.0; vec2 cs = floor(uv * uScale * pg) / pg; t = floor(hash21(cs * 5.31 + 0.7) * 3.0); }
+t = t * uRippleColorScale + (uRippleColorOffset + shift) * 3.0 + iTime * uRippleColorSpin;
+return mix(palette3(t), vec3(1.0), clamp(ring, 0.0, 1.0) * uRippleHotCore);
 }
 float noise(vec2 p){ return sin(p.x * 10.0) * sin(p.y * (3.0 + sin(time * 0.090909))) + 0.2; }
 mat2 rotate(float angle){ float c = cos(angle); float s = sin(angle); return mat2(c,-s,s,c); }
@@ -427,13 +593,14 @@ if (uRippleActive > 0.5) {
 vec2 s_uv = s / uScale;
 vec2 dh = s_uv - uRippleOrigin;
 dh.x *= iResolution.z;
+dh.y *= uRippleAspect;
 float dist = length(dh);
-float radius = uRippleProgress * 2.5 * ringWobble(dh);
+float radius = uRippleProgress * uRippleReach * ringWobble(dh);
 float buildHash = hash21(s * 43.7 + vec2(1.23, 4.56));
 float edge = radius - dist;
 loadFactor = smoothstep(-0.05 - buildHash * 0.35, 0.25, edge);
 intensity *= loadFactor;
-float ringBoost = step(0.0, edge)
+float ringBoost = rippleLead(edge)
 * smoothstep(uRippleBrightnessFalloff, 0.0, edge)
 * uRippleBrightness;
 intensity *= (1.0 + ringBoost);
@@ -513,14 +680,15 @@ if(uCurvature != 0.0){ uv = barrel(uv); }
 if(uRippleWarp > 0.001){
 vec2 wdh = uv - uRippleOrigin;
 wdh.x *= iResolution.z;
+wdh.y *= uRippleAspect;
 float wdist = max(length(wdh), 0.0001);
 float warp = 0.0;
 if(uRippleActive > 0.5 && uRippleProgress > 0.001){
-float wedge = uRippleProgress * 2.5 * ringWobble(wdh) - wdist;
+float wedge = uRippleProgress * uRippleReach * ringWobble(wdh) - wdist;
 warp += smoothstep(0.3, 0.0, abs(wedge)) * uRippleFade;
 }
 if(uAftershockActive > 0.5 && uAftershockProgress > 0.001){
-float awedge = uAftershockProgress * 2.5 * ringWobble(wdh) - wdist;
+float awedge = uAftershockProgress * (uAftershockReach > 0.0001 ? uAftershockReach : uRippleReach) * ringWobble(wdh) - wdist;
 warp += smoothstep(0.25, 0.0, abs(awedge)) * 0.6;
 }
 if(warp > 0.001){
@@ -566,36 +734,34 @@ col = mix(col, mix(uBgColor, brandColor(phase), blend), uBrandStrength);
 if (uRippleActive > 0.5 && uRippleProgress > 0.001) {
 vec2 dh = uv - uRippleOrigin;
 dh.x *= iResolution.z;
+dh.y *= uRippleAspect;
 float dist = length(dh);
-float radius = uRippleProgress * 2.5 * ringWobble(dh);
+float radius = uRippleProgress * uRippleReach * ringWobble(dh);
 float edge = radius - dist;
 float isRevealed = smoothstep(0.05, -0.05, dist - radius);
-float ringStr = step(0.0, edge) * smoothstep(uRippleBrightnessFalloff, 0.0, edge);
+float ringStr = rippleRing(edge);
 float colorAge = clamp(dist / max(radius, 0.001), 0.0, 1.0);
 float trailStr = pow(1.0 - colorAge, uRippleColorFalloff) * isRevealed * uRippleColorAmbient;
 float totalStr = clamp(ringStr + trailStr, 0.0, 1.0) * uRippleColorStrength * uRippleFade;
-float yFrac = clamp(uv.y, 0.0, 1.0);
-vec3 flashCol = yFrac > 0.5
-? mix(uRippleColor1, uRippleColor0, (yFrac - 0.5) * 2.0)
-: mix(uRippleColor2, uRippleColor1, yFrac * 2.0);
+vec3 flashCol = rippleTint(uv, dist, uRippleProgress, ringStr, 0.0);
 vec3 screened = blendGlow(col, flashCol * totalStr);
-col = mix(col, screened, blend);
+col = mix(col, screened, max(blend, uRippleGlass));
 col = clamp(col, 0.0, 1.0);
 }
 if (uAftershockActive > 0.5 && uAftershockProgress > 0.001) {
 vec2 adh = uv - uRippleOrigin;
 adh.x *= iResolution.z;
+adh.y *= uRippleAspect;
 float adist = length(adh);
-float aradius = uAftershockProgress * 2.5 * ringWobble(adh);
+float aradius = uAftershockProgress * (uAftershockReach > 0.0001 ? uAftershockReach : uRippleReach) * ringWobble(adh);
 float aedge = aradius - adist;
-float aringStr = step(0.0, aedge) * smoothstep(uRippleBrightnessFalloff, 0.0, aedge);
-float atotalStr = aringStr * uAftershockStrength;
-float yFracA = clamp(uv.y, 0.0, 1.0);
-vec3 aflashCol = yFracA > 0.5
-? mix(uRippleColor1, uRippleColor0, (yFracA - 0.5) * 2.0)
-: mix(uRippleColor2, uRippleColor1, yFracA * 2.0);
+float aringStr = rippleRingW(aedge, uAftershockWidth);
+float aage = clamp(adist / max(aradius, 0.001), 0.0, 1.0);
+float atrail = pow(1.0 - aage, uRippleColorFalloff) * smoothstep(0.05, -0.05, adist - aradius) * uAftershockTrail;
+float atotalStr = clamp(aringStr + atrail, 0.0, 1.0) * uAftershockStrength;
+vec3 aflashCol = rippleTint(uv, adist, uAftershockProgress, aringStr, uAftershockColorShift);
 vec3 ascreened = blendGlow(col, aflashCol * atotalStr);
-col = mix(col, ascreened, blend);
+col = mix(col, ascreened, max(blend, uRippleGlass));
 col = clamp(col, 0.0, 1.0);
 }
 vec2 grid_c = uGridMul * 15.0;
@@ -753,18 +919,96 @@ vec3 res = isH > 0.5 ? mine : empty;
 return mix(fieldCol, res, lock);
 }
 `;
+const LIFT_UNIFORMS = `uniform float uLiftOn;
+uniform vec2  uLiftCell;
+uniform float uLiftPin;
+uniform float uLiftT;
+uniform vec2  uLiftStag;
+uniform float uLiftQuiet;
+uniform float uDegEnv;
+uniform float uDegPh;
+uniform float uDegPur;`;
+// v1.13.0-dev lift resolve, field side. uLiftCell = grid cell of the heart's
+// top-left pixel (rows count down, so row r sits in cell y = uLiftCell.y - r).
+// Each heart pixel is one field cell: it decodes to its letter (M raspberry,
+// W coral, P teal), fills solid, then goes dark the moment it lifts — the
+// phosphor buffer keeps its ghost. The degauss shakes the glass and blots its
+// colour purity; lifted pixels (drawn off the glass) are spared both.
+const LIFT_GLSL = `
+vec2 degaussShift(vec2 v){
+float f = uDegPh * 0.045;
+float dx = sin(v.y * 31.0 + f) * 0.0045 + sin(v.y * 7.0 - f * 0.41) * 0.0035;
+float dy = sin(v.x * 11.0 + f * 0.53) * 0.0018;
+return vec2(dx, dy) * uDegEnv;
+}
+vec3 degaussPurity(vec2 v, vec3 c){
+if(uDegEnv < 0.0001 || uDegPur < 0.001) return c;
+vec2 q = v * vec2(2.6, 1.7);
+float ph = uDegPh * 0.0016;
+vec3 b = vec3(sin(q.x * 1.9 + ph + sin(q.y * 2.3 - ph * 0.7) * 1.3),
+sin(q.y * 2.1 - ph * 0.8 + 2.1 + sin(q.x * 1.7) * 1.1),
+sin((q.x - q.y) * 1.6 + ph * 0.6 + 4.2)) * 0.5 + 0.5;
+b /= max(dot(b, vec3(0.33333)), 0.001);
+float k = clamp(uDegEnv * uDegPur, 0.0, 1.2);
+vec3 lit = c - uBgColor;
+return clamp(uBgColor * (1.0 + (b - 1.0) * k * 0.08) + lit * mix(vec3(1.0), b * 1.2, k * 0.8), 0.0, 1.0);
+}
+float liftCode(float col, float row){
+if(col < 0.0 || col > 8.0 || row < 0.0 || row > 6.0) return 0.0;
+vec2 m = heartRowMasks(row);
+return mod(floor(m.x / exp2(col) + 0.01), 2.0) + mod(floor(m.y / exp2(col) + 0.01), 2.0) * 2.0;
+}
+vec3 liftPass(vec2 pf, vec3 fieldCol){
+vec2 grid = uGridMul * 15.0;
+vec2 g = pf * grid;
+vec2 cell = floor(g);
+float col = cell.x - uLiftCell.x;
+float row = uLiftCell.y - cell.y;
+if(col < -1.0 || col > 9.0 || row < -1.0 || row > 7.0) return fieldCol;
+vec3 quiet = mix(fieldCol, uBgColor, uLiftQuiet);
+float code = liftCode(col, row);
+if(code < 0.5) return quiet;
+float grp = code > 2.5 ? 1.0 : (code > 1.5 ? 2.0 : 0.0);
+if(uLiftT >= grp * uLiftStag.x + row * uLiftStag.y) return quiet;
+float d = hash21(vec2(col, row) * 3.7) * 0.25 + col / 8.0 * 0.2;
+float q = clamp((uLiftPin - d) / 0.55, 0.0, 1.0);
+if(q <= 0.0) return quiet;
+vec2 gp = (g - cell) * uDigitSize;
+float inG = step(gp.x, 1.0) * step(gp.y, 1.0);
+float px5 = gp.x * 5.0, py5 = (1.0 - gp.y) * 5.0;
+float j = floor(px5), i = floor(py5);
+float x = fract(px5), y = fract(py5);
+float decode = smoothstep(0.0, 0.45, q);
+float fill = smoothstep(0.45, 1.0, q);
+float tick = floor(iTime * 40.0);
+float scr = step(0.5, hash21(vec2(i, j) * 1.7 + cell * 0.31 + vec2(tick * 0.13, tick * 0.07)));
+float letter = getCharBit(grp, i, j);
+float bit = mix(scr, letter, step(hash21(cell * 1.31 + vec2(tick * 0.071, 3.1)), decode * 1.15));
+bit = max(bit, step(hash21(vec2(i, j) * 2.3 + cell * 0.7), fill * 1.1));
+float dotB = mix((0.2 + y * 0.8) * (0.75 + x * 0.25), 1.0, fill) * bit;
+float shape = mix(dotB, 1.0, smoothstep(0.8, 1.0, fill)) * inG;
+vec3 brand = code > 2.5 ? uRippleColor1 : (code > 1.5 ? uRippleColor2 : uRippleColor0);
+vec3 tgt = mix(uTint * 1.6, brand, smoothstep(0.15, 0.7, q));
+float lev = mix(0.35, 1.0, decode);
+float scan = 1.0 - 0.38 * step(mod(gl_FragCoord.y, 3.0), 1.0) * fill;
+vec3 base = mix(fieldCol, uBgColor, max(uLiftQuiet, smoothstep(0.0, 0.25, q)));
+return mix(base, tgt * scan, clamp(shape * lev, 0.0, 1.0));
+}
+`;
 function spliceShader(src, anchor, replacement){
   if(src.indexOf(anchor) < 0) throw new Error('[faulty-terminal] shader anchor not found: ' + anchor.slice(0, 48));
   return src.replace(anchor, () => replacement);
 }
 // f: { grid, gate, logo } — which features this instance compiles in.
 function buildFragmentShader(f){
-  if(!f.grid && !f.gate && !f.logo) return fragmentShader;
+  if(!f.grid && !f.gate && !f.logo && !f.lift && !f.overscan) return fragmentShader;
   let s = fragmentShader;
   const decl = [];
   if(f.grid) decl.push('uniform vec2  uGridShift;');
   if(f.gate) decl.push('uniform float uRippleGate;');
   if(f.logo) decl.push(LOGO_UNIFORMS);
+  if(f.lift) decl.push(LIFT_UNIFORMS);
+  if(f.overscan) decl.push('uniform float uOverscan;');
   s = spliceShader(s, 'uniform float uMwpGlitch;\n', 'uniform float uMwpGlitch;\n' + decl.join('\n') + '\n');
   if(f.grid){
     // Cell edges move with uGridShift. digit() and the MWP-letter overlay
@@ -789,6 +1033,16 @@ function buildFragmentShader(f){
     s = spliceShader(s, 'if(uVignette > 0.001){\nvec2 vq',
       'if(uLogoOn > 0.5) col = logoPass(' + (f.grid ? 'p + uGridShift' : 'p') + ', col);\nif(uVignette > 0.001){\nvec2 vq');
   }
+  if(f.lift){
+    s = spliceShader(s, '\nvoid main(){\n', LIFT_GLSL + 'void main(){\n');
+    s = spliceShader(s, 'vec2 uv = vUv;\n', 'vec2 uv = vUv;\nif(uDegEnv > 0.0001) uv += degaussShift(vUv);\n');
+    s = spliceShader(s, 'if(uVignette > 0.001){\nvec2 vq',
+      'if(uLiftOn > 0.5) col = liftPass(' + (f.grid ? 'p + uGridShift' : 'p') + ', col);\ncol = degaussPurity(vUv, col);\nif(uVignette > 0.001){\nvec2 vq');
+  }
+  if(f.overscan){
+    // vignette on the visible area, not the oversized canvas
+    s = spliceShader(s, 'vec2 vq = vUv - 0.5;', 'vec2 vq = (vUv - 0.5) * uOverscan;');
+  }
   return s;
 }
 // Barrel mapping shared with the shader: screen uv -> sampled uv.
@@ -807,6 +1061,10 @@ function safeQueryAll(root, sel){
   try{ return [].slice.call(root.querySelectorAll(sel)); }
   catch(e){ console.warn('[faulty-terminal] ignoring invalid selector:', sel); return null; }
 }
+// Lift-resolve options the debug panel / demo may change live.
+const LIFT_OPTION_KEYS = { logoCurveRamp:1, logoCurveFrom:1, logoCurveOffset:1, logoCurveMs:1, logoOrigin:1, logoFieldMs:1, logoHoldMs:1, logoPinMs:1, logoLiftHoldMs:1, logoLiftMs:1,
+  logoStaggerMs:1, logoRowStagger:1, logoTravelMs:1, logoDepth:1, logoBloom:1, logoQuiet:1, degaussOffset:1,
+  degaussMs:1, degaussAmp:1, degaussDecay:1, degaussPurity:1, logoRippleAt:1 };
 const FEATURE_PARAMS = { rippleGate: 'uRippleGate', logoSpread: 'uLogoSpread', logoSlot: 'uSlotScale',
   degaussAmp: 'uDegAmp', degaussDecay: 'uDegDecay' };
 const HEX_RE = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -968,11 +1226,25 @@ function createInstance(ctn, opts){
     console.warn('[faulty-terminal] logoResolve needs gridLock (the logo element) — logo resolve is off.');
     logoOn = false;
   }
-  const gateOn = opts.rippleGate === false || logoOn;
+  // v1.13.0-dev lift resolve: needs only the HTML heart. The field is already
+  // up when the ripple fires, so the ring pulses without the reveal front.
+  const liftOn = !!opts.logoLift && !logoOn;
+  if(opts.logoLift && logoOn) console.warn('[faulty-terminal] logoLift and logoResolve are both set — using logoResolve.');
+  const overscanOn = !(opts.overscan===false || opts.overscan===0 || /^(false|off|0|)$/i.test(String(opts.overscan)));
+  let osScale = 1;
+  const LIFT={ S:null, e:0, base:0, tStart:-1, speed:1, playing:false, landed:false, rippled:false,
+    startedAt:0, el:null, pix:null, cell:[0,0], anchor:[0,0], cv:null, ctx:null, dpr:1, W:0, H:0, promise:null, done:null };
+  const gateOn = opts.rippleGate === false || logoOn || liftOn;
   const reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const featureUniforms = {};
   if(gridOn) featureUniforms.uGridShift = {value:new Float32Array([0,0])};
-  if(gateOn) featureUniforms.uRippleGate = {value:opts.rippleGate === false ? 0 : 1};
+  if(gateOn) featureUniforms.uRippleGate = {value:(opts.rippleGate === false || liftOn) ? 0 : 1};
+  if(liftOn) Object.assign(featureUniforms, {
+    uLiftOn:{value:0}, uLiftCell:{value:new Float32Array([0,0])}, uLiftPin:{value:0}, uLiftT:{value:-1},
+    uLiftStag:{value:new Float32Array([0,0])}, uLiftQuiet:{value:0},
+    uDegEnv:{value:0}, uDegPh:{value:0}, uDegPur:{value:opts.degaussPurity??0.6},
+  });
+  if(overscanOn) featureUniforms.uOverscan = {value:1};
   if(logoOn) Object.assign(featureUniforms, {
     uLogoOn:{value:0},
     uLogoP:{value:0},
@@ -989,7 +1261,7 @@ function createInstance(ctn, opts){
   });
   const program = new Program(gl,{
     vertex: vertexShader,
-    fragment: buildFragmentShader({ grid: gridOn, gate: gateOn, logo: logoOn }),
+    fragment: buildFragmentShader({ grid: gridOn, gate: gateOn, logo: logoOn, lift: liftOn, overscan: overscanOn }),
     uniforms: {
       iTime:{value:0},
       iResolution:{value:new Color(1,1,1)},
@@ -1050,6 +1322,26 @@ function createInstance(ctn, opts){
       uHeartFalloff:{value:opts.heartFalloff??0.8},
       uMwpLegible:{value:opts.mwpLegible??0.22},
       uMwpGlitch:{value:opts.mwpGlitch??0.5},
+      uRippleReach:{value:opts.rippleReach??2.5},
+      uRippleRingWidth:{value:opts.rippleRingWidth??0},
+      uRippleEdgeSoft:{value:opts.rippleEdgeSoft??0},
+      uRippleHotCore:{value:opts.rippleHotCore??0},
+      uRippleEchoes:{value:opts.rippleEchoes??0},
+      uRippleEchoGap:{value:opts.rippleEchoGap??0.18},
+      uRippleEchoDecay:{value:opts.rippleEchoDecay??0.55},
+      uRippleColorMode:{value:opts.rippleColorMode??0},
+      uRippleColorScale:{value:opts.rippleColorScale??1},
+      uRippleColorOffset:{value:opts.rippleColorOffset??0},
+      uRippleColorSpin:{value:opts.rippleColorSpin??0},
+      uRippleColorBlend:{value:opts.rippleColorBlend??1},
+      uRippleAspect:{value:opts.rippleAspect??1},
+      uRippleInnerFalloff:{value:opts.rippleInnerFalloff??1},
+      uRippleWobbleFreq:{value:opts.rippleWobbleFreq??1},
+      uRippleGlass:{value:opts.rippleGlass??0},
+      uAftershockReach:{value:opts.aftershockReach??0},
+      uAftershockWidth:{value:opts.aftershockWidth??0},
+      uAftershockTrail:{value:opts.aftershockTrail??0},
+      uAftershockColorShift:{value:opts.aftershockColorShift??0},
       ...featureUniforms,
     }
   });
@@ -1090,14 +1382,65 @@ function createInstance(ctn, opts){
   // v1.12.2: a no-op when the drawing size is unchanged. Re-setting the canvas
   // size reallocates its buffer (and makeRTs three more) even at the same size,
   // which cost a visible frame in Safari.
-  let sizedW=-1, sizedH=-1;
+  let sizedW=-1, sizedH=-1, sizedS=-1;
+  // overscan 'auto': the smallest canvas scale whose tilted, perspective-
+  // projected outline still covers the whole container at the maximum tilt.
+  function coverScale(w,h,deg){
+    if(!(deg>0)) return 1;
+    const P=600, a=deg*Math.PI/180, hw=w/2, hh=h/2;
+    function covers(S){
+      for(const sx of [-1,1]) for(const sy of [-1,1]){
+        const ax=a*sx, ay=a*sy, cX=Math.cos(ax), sX=Math.sin(ax), cY=Math.cos(ay), sY=Math.sin(ay);
+        const q=[[-1,-1],[1,-1],[1,1],[-1,1]].map(([u,v])=>{
+          const x=u*hw*S, y=v*hh*S;
+          const x1=x*cY, z1=-x*sY;                 // rotateY
+          const y2=y*cX-z1*sX, z2=y*sX+z1*cX;      // rotateX
+          const k=P/(P-z2);                        // perspective
+          return [x1*k, y2*k];
+        });
+        for(const [px,py] of [[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]]){
+          for(let i=0;i<4;i++){
+            const A=q[i], B=q[(i+1)%4];
+            if((B[0]-A[0])*(py-A[1])-(B[1]-A[1])*(px-A[0]) < 0) return false;
+          }
+        }
+      }
+      return true;
+    }
+    let lo=1, hi=2.5;
+    if(!covers(hi)) return hi;
+    for(let n=0;n<18;n++){ const m=(lo+hi)/2; covers(m)?hi=m:lo=m; }
+    return hi;
+  }
+  function overscanFor(w,h){
+    const n=Number(opts.overscan);
+    if(isFinite(n) && n>=1) return n;
+    const coarse=typeof matchMedia==='function' && matchMedia('(pointer: coarse)').matches;
+    const maxDeg=opts.tiltReact ? (tiltStrengthRef*10)*(coarse?1:0.5) : 0;
+    return coverScale(w,h,maxDeg) + Math.max(0, Number(opts.overscanMargin)||0);
+  }
+  // The canvas's scale about the container centre: the overscan, or v1.12's
+  // tilt scale(1.06).
+  const canvasScale = () => overscanOn ? osScale : (opts.tiltReact ? TILT_SCALE : 1);
+  // container 0..1 uv (y up) -> canvas vUv
+  const ctnToCanvasUv = (u,v) => overscanOn ? [0.5+(u-0.5)/osScale, 0.5+(v-0.5)/osScale] : [u,v];
   function applySize(){
     const w=Math.max(1,ctn.offsetWidth), h=Math.max(1,ctn.offsetHeight);
-    const sw=Math.max(1,Math.floor(w*renderScale)), sh=Math.max(1,Math.floor(h*renderScale));
-    if(sw===sizedW && sh===sizedH) return;
-    sizedW=sw; sizedH=sh;
+    if(overscanOn) osScale=overscanFor(w,h);
+    const S=overscanOn?osScale:1;
+    const sw=Math.max(1,Math.floor(w*S*renderScale)), sh=Math.max(1,Math.floor(h*S*renderScale));
+    if(sw===sizedW && sh===sizedH && S===sizedS) return;
+    sizedW=sw; sizedH=sh; sizedS=S;
     renderer.setSize(sw,sh);
-    gl.canvas.style.width='100%'; gl.canvas.style.height='100%';
+    if(overscanOn){
+      const cs=gl.canvas.style, pc=(S*100).toFixed(4)+'%', off=(-(S-1)*50).toFixed(4)+'%';
+      cs.position='absolute'; cs.width=pc; cs.height=pc; cs.left=off; cs.top=off; cs.maxWidth='none';
+      // same on-screen cell pitch as v1.12's scale(1.06) canvas
+      program.uniforms.uScale.value=opts.scale*S/TILT_SCALE;
+      program.uniforms.uOverscan.value=S;
+    } else {
+      gl.canvas.style.width='100%'; gl.canvas.style.height='100%';
+    }
     program.uniforms.iResolution.value = new Color(gl.canvas.width,gl.canvas.height,gl.canvas.width/gl.canvas.height);
     if(fbProg) makeRTs();
   }
@@ -1121,6 +1464,7 @@ function createInstance(ctn, opts){
     if(fullHold) renderScale=opts.renderScaleMax;
     applySize();
     if(gridOn) relayout();
+    if(liftOn && LIFT.S) liftLayout();
   }
   // gridLock: square cells of gridLockCellPx CSS px on screen, a cell edge on
   // (element left, element top − logo gap). Accounts for the tilt transform's
@@ -1141,7 +1485,7 @@ function createInstance(ctn, opts){
     if(!gridEl) return;
     const cr=ctn.getBoundingClientRect(), er=gridEl.getBoundingClientRect();
     if(cr.width<1 || cr.height<1) return;
-    const ts=opts.tiltReact ? TILT_SCALE : 1;
+    const ts=canvasScale();
     const W=cr.width*ts, H=cr.height*ts;
     const left=cr.left+(cr.width-W)/2, top=cr.top+(cr.height-H)/2;
     const pitch=Number(opts.logoPitch)>0?Number(opts.logoPitch):18;
@@ -1232,15 +1576,80 @@ function createInstance(ctn, opts){
   function triggerRipple(){
     if(rippleTriggered) return;
     rippleTriggered=true;
-    const originEl = safeQuery(opts.rippleOriginSelector) || ctn;
-    const er=(originEl||ctn).getBoundingClientRect();
-    const cr=ctn.getBoundingClientRect();
-    program.uniforms.uRippleOrigin.value[0]=Math.max(0,Math.min(1,(er.left+er.width*0.5-cr.left)/cr.width));
-    program.uniforms.uRippleOrigin.value[1]=Math.max(0,Math.min(1,1-(er.top+er.height*0.5-cr.top)/cr.height));
+    setRippleOrigin();
     program.uniforms.uRippleActive.value=1;
     program.uniforms.uRippleProgress.value=0;
     rippleStartTime=performance.now();
+    pulseStart(rippleStartTime);
     releaseLoop();
+  }
+  function setRippleOrigin(){
+    const originEl = safeQuery(opts.rippleOriginSelector) || (liftOn && liftEl()) || ctn;
+    const er=(originEl||ctn).getBoundingClientRect();
+    const cr=ctn.getBoundingClientRect();
+    const o=ctnToCanvasUv((er.left+er.width*0.5-cr.left)/cr.width, 1-(er.top+er.height*0.5-cr.top)/cr.height);
+    program.uniforms.uRippleOrigin.value[0]=Math.max(0,Math.min(1,o[0]));
+    program.uniforms.uRippleOrigin.value[1]=Math.max(0,Math.min(1,o[1]));
+  }
+  // Pulse envelope (v1.13.0-dev): on the impact the field ramps to
+  // opts.pulsePeak and decays back to the values it had before.
+  const PULSE={ on:false, t0:0, keys:[], rest:{}, peak:{}, k:0 };
+  function pulseRestore(){
+    PULSE.keys.forEach(k=>{ program.uniforms[unifMap[k]].value=PULSE.rest[k]; });
+    PULSE.on=false; PULSE.k=0;
+  }
+  // Hold the field at the peak (the panel's "editing: peak" mode).
+  function previewKey(k){
+    if(!unifMap[k] || !program.uniforms[unifMap[k]] || !opts.pulsePeak || !isFinite(Number(opts.pulsePeak[k]))) return;
+    if(!(k in PULSE.rest)){ const o=Number(opts[k]); PULSE.rest[k]=isFinite(o)?o:Number(program.uniforms[unifMap[k]].value); PULSE.keys.push(k); }
+    program.uniforms[unifMap[k]].value=Number(opts.pulsePeak[k]);
+  }
+  function pulsePreview(on){
+    on=!!on;
+    if(on===!!PULSE.preview) return;
+    if(PULSE.on) pulseRestore();
+    PULSE.preview=on;
+    if(on){ PULSE.keys=[]; PULSE.rest={}; Object.keys(opts.pulsePeak||{}).forEach(previewKey); PULSE.k=1; }
+    else { pulseRestore(); PULSE.keys=[]; PULSE.rest={}; }
+  }
+  function setPulsePeak(k,v){
+    opts.pulsePeak=Object.assign({}, opts.pulsePeak||{});
+    if(v===null || v===undefined) delete opts.pulsePeak[k]; else opts.pulsePeak[k]=Number(v);
+    if(PULSE.preview){
+      if(v===null || v===undefined){ if(k in PULSE.rest){ program.uniforms[unifMap[k]].value=PULSE.rest[k]; delete PULSE.rest[k]; PULSE.keys=PULSE.keys.filter(x=>x!==k); } }
+      else previewKey(k);
+    }
+  }
+  function getPulsePeak(k){
+    const pk=opts.pulsePeak;
+    return pk && isFinite(Number(pk[k])) ? Number(pk[k]) : null;
+  }
+  function pulseStart(t){
+    const pk=opts.pulsePeak;
+    if(!pk || typeof pk!=='object' || reducedMotion || PULSE.preview) return;
+    if(!PULSE.on){
+      PULSE.keys=Object.keys(pk).filter(k=>unifMap[k] && program.uniforms[unifMap[k]] && isFinite(Number(pk[k])));
+      PULSE.rest={}; PULSE.keys.forEach(k=>{ const o=Number(opts[k]); PULSE.rest[k]=isFinite(o)?o:Number(program.uniforms[unifMap[k]].value); });
+    }
+    PULSE.peak={}; PULSE.keys.forEach(k=>{ PULSE.peak[k]=Number(pk[k]); });
+    PULSE.on=PULSE.keys.length>0; PULSE.t0=t;
+  }
+  const PULSE_STEPPED={ brandMode:1, blendMode:1 };
+  function pulseStep(t){
+    if(!PULSE.on || PULSE.preview) return;
+    const A=Math.max(1,Number(opts.pulseAttackMs)||0), Hd=Math.max(0,Number(opts.pulseHoldMs)||0), D=Math.max(1,Number(opts.pulseDecayMs)||0);
+    const e=Math.max(0,t-PULSE.t0);   // rAF time can trail performance.now()
+    let k;
+    if(e<A){ const a=e/A; k=1-(1-a)*(1-a); }
+    else if(e<A+Hd) k=1;
+    else if(e<A+Hd+D) k=Math.exp(-(e-A-Hd)/(D/3))*(1-(e-A-Hd)/D);
+    else k=0;
+    PULSE.k=k;
+    PULSE.keys.forEach(key=>{
+      const r=PULSE.rest[key], pk=PULSE.peak[key];
+      program.uniforms[unifMap[key]].value = PULSE_STEPPED[key] ? (k>0.5?pk:r) : r+(pk-r)*k;
+    });
+    if(e>=A+Hd+D) PULSE.on=false;
   }
   // deferLoop: true while the reveal is armed and the loop is held. start()
   // still lets exactly one frame through so ready fires and the canvas holds
@@ -1393,7 +1802,7 @@ function createInstance(ctn, opts){
   // (if any) has faded, so the size change never lands mid-animation.
   let fullReleasePending=false;
   function maybeReleaseFull(){
-    if(!fullReleasePending || LT.playing) return;
+    if(!fullReleasePending || LT.playing || LIFT.playing) return;
     if(opts.ripple && program.uniforms.uRippleActive.value>0.5) return;
     fullReleasePending=false;
     holdFullScale(false);
@@ -1440,6 +1849,7 @@ function createInstance(ctn, opts){
   // Convenience: the whole FT side of the resolve on the approved timings.
   // Resolves (and fires faulty-terminal:logo-resolved) on the hand-off frame.
   function resolveLogo(timings){
+    if(liftOn) return playLift();
     if(logoPromise) return logoPromise;
     logoPromise=new Promise(r=>{ logoResolveFn=r; });
     if(timings && typeof timings==='object') Object.keys(LOGO_TIMING_KEYS).forEach(k=>{
@@ -1487,6 +1897,308 @@ function createInstance(ctn, opts){
       LT.e=Math.min(LT.e, LT.S.done);
       if(!LT.playing) logoRender();
     },
+  } : null;
+
+  // ---------------------------------------------------------------------------
+  // Lift resolve (v1.13.0-dev). One clock, ms from the start of the field fade:
+  //   field fade → pin (cells decode to M/W/P and fill) → beat → lift, M then W
+  //   then P (each pixel goes dark on the glass, leaving its phosphor ghost,
+  //   and is drawn off the glass on a DPR canvas) → critically damped glide
+  //   to its HTML pixel → swap on a frame where the two are identical →
+  //   ripple from the heart + pulse envelope.
+  // The degauss runs from the first lift: the glass wobbles and its colour
+  // purity blots; a pixel is spared in proportion to how far it has lifted.
+  // ---------------------------------------------------------------------------
+  const LIFT_MASKS=[[6,192],[95,496],[95,500],[95,500],[30,244],[24,56],[0,32]];
+  function liftEl(){
+    if(LIFT.el && LIFT.el.isConnected) return LIFT.el;
+    LIFT.el=safeQuery(opts.logoLift); LIFT.pix=null;
+    return LIFT.el;
+  }
+  function liftPixels(){
+    if(LIFT.pix) return LIFT.pix;
+    const el=liftEl(), out=[];
+    if(!el) return out;
+    [].slice.call(el.children).forEach((c,i)=>{
+      const col=i%9, row=Math.floor(i/9);
+      if(row>6) return;
+      const m=LIFT_MASKS[row], code=((m[0]>>col)&1)+(((m[1]>>col)&1)*2);
+      if(!code) return;
+      let t=c;
+      if(isClear(getComputedStyle(c).backgroundColor))
+        t=[].find.call(c.querySelectorAll('*'), x=>!isClear(getComputedStyle(x).backgroundColor)) || c;
+      const cs=getComputedStyle(t);
+      out.push({ el:t, col, row, code, grp: code===3?1:(code===2?2:0), color: cs.backgroundColor,
+        radius: parseFloat(cs.borderTopLeftRadius)||0, s:null, t:null });
+    });
+    return (LIFT.pix=out);
+  }
+  function liftSchedule(){
+    const n=v=>Math.max(0,Number(v)||0);
+    const f1=n(opts.logoFieldMs), p0=f1+n(opts.logoHoldMs), pMs=Math.max(1,n(opts.logoPinMs)), p1=p0+pMs;
+    const l0=p1+n(opts.logoLiftHoldMs), st=n(opts.logoStaggerMs), rs=n(opts.logoRowStagger);
+    const lMs=Math.max(1,n(opts.logoLiftMs)), tMs=Math.max(1,n(opts.logoTravelMs));
+    const lastLift=l0+2*st+6*rs;
+    const land=lastLift+lMs*0.5+tMs;
+    const d0=l0+(Number(opts.degaussOffset)||0), dMs=Math.max(1,n(opts.degaussMs)), d1=d0+dMs;
+    const rp=land+(Number(opts.logoRippleAt)||0);
+    const cOn=opts.logoCurveRamp!==false && opts.logoCurveRamp!=='false';
+    const c0=l0+(Number(opts.logoCurveOffset)||0), cMs=Math.max(1,n(opts.logoCurveMs)), c1=c0+cMs;
+    return { f1, p0, pMs, p1, l0, st, rs, lMs, tMs, lastLift, land, d0, dMs, d1, rp, cOn, c0, cMs, c1,
+      done:Math.max(land, rp, d1, cOn?c1:0)+20 };
+  }
+  // the glass curvature at timeline time e (flat start ramps to opts.curvature)
+  function curveAt(e,S){
+    const rest=Number(opts.curvature)||0;
+    if(!S || !S.cOn) return rest;
+    const from=Number(opts.logoCurveFrom)||0;
+    const t=clamp((e-S.c0)/S.cMs,0,1), w=t*t*(3-2*t);
+    return from+(rest-from)*w;
+  }
+  // geometry: container px (y down) <-> canvas vUv <-> sampled uv <-> cells
+  // (k = the curvature to map with; defaults to the current one)
+  function curvNow(k){ return k==null ? (Number(program.uniforms.uCurvature.value)||0) : k; }
+  function invBarrel(su,sv,kk){
+    const k=curvNow(kk);
+    if(!k) return [su,sv];
+    const tx=su*2-1, ty=sv*2-1; let cx=tx, cy=ty;
+    for(let i=0;i<10;i++){ const f=1+k*(cx*cx+cy*cy); cx=tx/f; cy=ty/f; }
+    return [cx*0.5+0.5, cy*0.5+0.5];
+  }
+  function gridCells(){ const gm=program.uniforms.uGridMul.value, sc=Number(program.uniforms.uScale.value)||1; return [sc*gm[0]*15, sc*gm[1]*15]; }
+  function gridShift(){ return gridOn ? program.uniforms.uGridShift.value : [0,0]; }
+  function ctnToCell(x,y,kk){
+    const S=canvasScale(), W=LIFT.W, H=LIFT.H;
+    const u=0.5+(x-W/2)/(S*W), v=0.5-(y-H/2)/(S*H);
+    const k=curvNow(kk);
+    const b=k?barrelUv(u,v,k):[u,v];
+    const g=gridCells(), sh=gridShift(), gm=program.uniforms.uGridMul.value;
+    return [Math.floor(b[0]*g[0]+sh[0]*gm[0]*15), Math.floor(b[1]*g[1]+sh[1]*gm[1]*15)];
+  }
+  function cellPtToCtn(cx,cy,kk){   // a point in cell units (y up) -> container px
+    const g=gridCells(), sh=gridShift(), gm=program.uniforms.uGridMul.value;
+    const su=(cx-sh[0]*gm[0]*15)/g[0], sv=(cy-sh[1]*gm[1]*15)/g[1];
+    const v=invBarrel(su,sv,kk), S=canvasScale();
+    return [(v[0]-0.5)*S*LIFT.W+LIFT.W/2, (0.5-v[1])*S*LIFT.H+LIFT.H/2];
+  }
+  // the glyph area of a cell: x 0..1/digitSize, y 0..1/digitSize from its bottom-left
+  function glyphRect(cx,cy,k){
+    const ds=Math.max(0.01,Number(program.uniforms.uDigitSize.value)||1), e=1/ds;
+    const a=cellPtToCtn(cx,cy+e,k), b=cellPtToCtn(cx+e,cy,k), c=cellPtToCtn(cx,cy,k), d=cellPtToCtn(cx+e,cy+e,k);
+    const x0=Math.min(a[0],c[0]), x1=Math.max(b[0],d[0]), y0=Math.min(a[1],d[1]), y1=Math.max(b[1],c[1]);
+    return { x:x0, y:y0, w:x1-x0, h:y1-y0 };
+  }
+  function liftLayout(){
+    const cr=ctn.getBoundingClientRect();
+    LIFT.W=cr.width; LIFT.H=cr.height;
+    const pix=liftPixels();
+    if(!pix.length) return;
+    let bx0=1e9, by0=1e9, bx1=-1e9, by1=-1e9;
+    pix.forEach(p=>{
+      const r=p.el.getBoundingClientRect();
+      p.t={ x:r.left-cr.left, y:r.top-cr.top, w:r.width, h:r.height };
+      bx0=Math.min(bx0,p.t.x); by0=Math.min(by0,p.t.y); bx1=Math.max(bx1,p.t.x+p.t.w); by1=Math.max(by1,p.t.y+p.t.h);
+    });
+    let ax, ay;
+    if(String(opts.logoOrigin).toLowerCase()==='target'){ ax=(bx0+bx1)/2; ay=(by0+by1)/2; }
+    else { ax=LIFT.W/2; ay=LIFT.H/2; }
+    // cells are chosen on the glass as it is while the heart forms
+    const S=LIFT.S, kPin=curveAt(S?S.p0:0,S);
+    // keep the 9×7 footprint (and a cell of margin) on screen
+    for(let it=0;it<2;it++){
+      const c=ctnToCell(ax,ay,kPin), p0=cellPtToCtn(c[0],c[1],kPin), p1=cellPtToCtn(c[0]+1,c[1]-1,kPin);
+      const cw=Math.abs(p1[0]-p0[0]), ch=Math.abs(p1[1]-p0[1]);
+      ax=clamp(ax, 5.5*cw, Math.max(5.5*cw, LIFT.W-5.5*cw));
+      ay=clamp(ay, 4.5*ch, Math.max(4.5*ch, LIFT.H-4.5*ch));
+    }
+    const c=ctnToCell(ax,ay,kPin);
+    LIFT.cell=[c[0]-4, c[1]+3];
+    LIFT.anchor=[ax,ay];
+    const u=program.uniforms.uLiftCell.value; u[0]=LIFT.cell[0]; u[1]=LIFT.cell[1];
+    // each pixel leaves from where its cell is on the glass at its own lift moment
+    pix.forEach(p=>{
+      const k=S ? curveAt(S.l0+p.grp*S.st+p.row*S.rs, S) : null;
+      p.s=glyphRect(LIFT.cell[0]+p.col, LIFT.cell[1]-p.row, k);
+    });
+    if(LIFT.cv) sizeLiftCanvas();
+  }
+  function liftCanvas(){
+    if(LIFT.cv) return LIFT.cv;
+    if(getComputedStyle(ctn).position==='static') ctn.style.position='relative';
+    const cv=document.createElement('canvas');
+    cv.className='ft-lift';
+    cv.setAttribute('aria-hidden','true');
+    Object.assign(cv.style,{ position:'absolute', left:'0', top:'0', width:'100%', height:'100%', pointerEvents:'none', zIndex:'1', transform:'none' });
+    ctn.appendChild(cv);
+    LIFT.cv=cv; LIFT.ctx=cv.getContext('2d');
+    sizeLiftCanvas();
+    return cv;
+  }
+  function sizeLiftCanvas(){
+    const d=window.devicePixelRatio||1, w=Math.max(1,Math.round(LIFT.W*d)), h=Math.max(1,Math.round(LIFT.H*d));
+    LIFT.dpr=d;
+    if(LIFT.cv.width!==w || LIFT.cv.height!==h){ LIFT.cv.width=w; LIFT.cv.height=h; }
+  }
+  const lerp=(a,b,t)=>a+(b-a)*t;
+  function degaussEnv(e,S){
+    if(e<S.d0) return 0;
+    const dt=(e-S.d0)/S.dMs;
+    if(dt>=1) return 0;
+    return Math.exp(-(Number(opts.degaussDecay)||0)*dt)*(1-dt)*(Number(opts.degaussAmp)||0);
+  }
+  function damp(t){   // critically damped 0→1, zero start velocity, no overshoot
+    if(t<=0) return 0; if(t>=1) return 1;
+    const w=7; return (1-(1+w*t)*Math.exp(-w*t))/(1-(1+w)*Math.exp(-w));
+  }
+  function setHeartVisible(v){
+    const el=liftEl(); if(!el) return;
+    const vis=(v||LIFT.ghost)?'':'hidden', op=(!v&&LIFT.ghost)?'0.45':'';
+    if(el.style.visibility!==vis) el.style.visibility=vis;
+    if(el.style.opacity!==op) el.style.opacity=op;
+  }
+  function liftRender(){
+    const S=LIFT.S, e=LIFT.e, u=program.uniforms;
+    if(!S) return;
+    setFieldProgress(S.f1>0 ? e/S.f1 : 1);
+    const landed=e>=S.land;
+    if(S.cOn && !PULSE.on) u.uCurvature.value=curveAt(e,S);
+    u.uLiftOn.value=(e>=S.p0 && !landed)?1:0;
+    u.uLiftPin.value=clamp((e-S.p0)/S.pMs,0,1);
+    u.uLiftT.value=e>=S.l0 ? e-S.l0 : -1;
+    u.uLiftStag.value[0]=S.st; u.uLiftStag.value[1]=S.rs;
+    const sm=(a,b,x)=>{ const t=clamp((x-a)/Math.max(1e-3,b-a),0,1); return t*t*(3-2*t); };
+    u.uLiftQuiet.value=(Number(opts.logoQuiet)||0)*sm(S.p0,S.p0+S.pMs*0.5,e)*(1-sm(S.l0,S.land,e));
+    const env=degaussEnv(e,S);
+    u.uDegEnv.value=env; u.uDegPh.value=Math.max(0,e-S.d0);
+    setHeartVisible(landed);
+    drawLift(e,S,env,landed);
+  }
+  function drawLift(e,S,env,landed){
+    const pix=liftPixels();
+    if(landed || e<S.l0 || !pix.length){
+      if(LIFT.cv && LIFT.cv.style.display!=='none'){ LIFT.ctx.clearRect(0,0,LIFT.cv.width,LIFT.cv.height); LIFT.cv.style.display='none'; }
+      return;
+    }
+    liftCanvas();
+    if(LIFT.cv.style.display==='none') LIFT.cv.style.display='';
+    const ctx=LIFT.ctx, d=LIFT.dpr, Sc=canvasScale();
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.clearRect(0,0,LIFT.cv.width,LIFT.cv.height);
+    ctx.setTransform(d,0,0,d,0,0);
+    const depthAmt=Number(opts.logoDepth)||0, bloomAmt=Number(opts.logoBloom)||0;
+    const ph=Math.max(0,e-S.d0)*0.045;
+    pix.forEach(p=>{
+      if(!p.s || !p.t) return;
+      const ls=e-(S.l0+p.grp*S.st+p.row*S.rs);
+      if(ls<0) return;   // still on the glass: the shader draws it
+      const a=Math.min(ls/S.lMs,1), depth=1-Math.pow(1-a,3);
+      const tr=damp((ls-S.lMs*0.5)/S.tMs);
+      const g=1+depthAmt*depth*(1-tr);
+      const sw=p.s.w*g, sh=p.s.h*g;
+      const scx=p.s.x+p.s.w/2, scy=p.s.y+p.s.h/2;
+      let cx=lerp(scx, p.t.x+p.t.w/2, tr), cy=lerp(scy, p.t.y+p.t.h/2, tr);
+      const w=lerp(sw, p.t.w, tr), h=lerp(sh, p.t.h, tr);
+      // the glass's degauss shake, felt less the further the pixel has lifted
+      if(env>0){
+        const vy=0.5-(cy-LIFT.H/2)/(Sc*LIFT.H), vx=0.5+(cx-LIFT.W/2)/(Sc*LIFT.W);
+        const dx=(Math.sin(vy*31+ph)*0.0045+Math.sin(vy*7-ph*0.41)*0.0035)*env;
+        const dy=Math.sin(vx*11+ph*0.53)*0.0018*env;
+        const off=1-depth;
+        cx-=dx*Sc*LIFT.W*off; cy+=dy*Sc*LIFT.H*off;
+      }
+      let x=cx-w/2, y=cy-h/2;
+      // land on the device-pixel grid the browser draws the HTML pixel on
+      x=lerp(x, Math.round(x*d)/d, tr); y=lerp(y, Math.round(y*d)/d, tr);
+      const r=Math.min(w,h)/2, rad=Math.min(r, lerp(Math.min(2,r), p.radius, tr));
+      const lift=depth*(1-tr);
+      ctx.save();
+      ctx.beginPath();
+      if(ctx.roundRect) ctx.roundRect(x,y,w,h,rad); else ctx.rect(x,y,w,h);
+      if(bloomAmt>0 && lift>0.001){ ctx.shadowColor=p.color; ctx.shadowBlur=bloomAmt*14*lift*d; }
+      ctx.fillStyle=p.color;
+      ctx.fill();
+      ctx.shadowBlur=0;
+      ctx.clip();
+      const glow=0.12*lift;
+      if(glow>0.002){ ctx.globalCompositeOperation='lighter'; ctx.fillStyle='rgba(255,255,255,'+glow.toFixed(3)+')'; ctx.fillRect(x,y,w,h); ctx.globalCompositeOperation='source-over'; }
+      const scan=0.38*(1-depth);
+      if(scan>0.004){
+        ctx.fillStyle='rgba(0,0,0,'+scan.toFixed(3)+')';
+        for(let yy=Math.floor(y/3)*3; yy<y+h; yy+=3) ctx.fillRect(x, yy, w, 1);
+      }
+      ctx.restore();
+    });
+  }
+  function stepLift(t){
+    if(LIFT.tStart<0) LIFT.tStart=t;
+    LIFT.e=LIFT.base+(t-LIFT.tStart)*LIFT.speed;
+    const S=LIFT.S;
+    if(LIFT.e>=S.done) LIFT.e=S.done;
+    liftRender();
+    if(!LIFT.landed && LIFT.e>=S.land){
+      LIFT.landed=true;
+      const done=LIFT.done; LIFT.done=null; LIFT.promise=null;
+      const detail={ instance: api, static:false, reducedMotion, skipped:false };
+      ctn.dispatchEvent(new CustomEvent('faulty-terminal:logo-resolved',{bubbles:true,detail}));
+      if(done) done(detail);
+    }
+    if(!LIFT.rippled && LIFT.e>=S.rp && opts.ripple!==false){ LIFT.rippled=true; retrigger(); }
+    if(LIFT.e>=S.done){ LIFT.playing=false; LIFT.base=LIFT.e; LIFT.tStart=-1; fullReleasePending=true; }
+  }
+  function liftPlay(){
+    LIFT.S=liftSchedule();
+    LIFT.e=0; LIFT.base=0; LIFT.tStart=-1; LIFT.landed=false; LIFT.rippled=false; LIFT.playing=true;
+    LIFT.startedAt=performance.now();
+    const u=program.uniforms;
+    u.uRippleActive.value=0; u.uAftershockActive.value=0; u.uRippleProgress.value=0;
+    u.uMwpReveal.value=1; u.uMwpWaveEnv.value=0;
+    if(PULSE.on && !PULSE.preview) pulseRestore();
+    tiltX=tiltY=tiltTargetX=tiltTargetY=0;   // the field is still invisible
+    LIFT.pix=null;
+    liftLayout();
+    setHeartVisible(false);
+    fullReleasePending=false;
+    if(opts.logoFullScale!==false) holdFullScale(true);
+    liftRender();
+    releaseLoop();
+  }
+  function playLift(){
+    if(!LIFT.promise) LIFT.promise=new Promise(r=>{ LIFT.done=r; });
+    const p=LIFT.promise;
+    if(reducedMotion || !liftEl()){
+      setFieldProgress(1); setHeartVisible(true);
+      const done=LIFT.done; LIFT.done=null; LIFT.promise=null;
+      setTimeout(()=>{
+        const detail={ instance: api, static:false, reducedMotion, skipped:true };
+        ctn.dispatchEvent(new CustomEvent('faulty-terminal:logo-resolved',{bubbles:true,detail}));
+        if(done) done(detail);
+      },0);
+      return p;
+    }
+    liftPlay();
+    return p;
+  }
+  const liftTimeline = liftOn ? {
+    get schedule(){ return LIFT.S || liftSchedule(); },
+    get time(){ return LIFT.e; },
+    get playing(){ return LIFT.playing; },
+    get speed(){ return LIFT.speed; },
+    play: playLift,
+    pause(){ if(LIFT.playing){ LIFT.playing=false; LIFT.base=LIFT.e; LIFT.tStart=-1; } },
+    resume(){ if(LIFT.S && !LIFT.playing && LIFT.e<LIFT.S.done){ LIFT.playing=true; LIFT.tStart=-1; releaseLoop(); } },
+    seek(ms){
+      if(!LIFT.S){ LIFT.S=liftSchedule(); liftLayout(); }
+      LIFT.playing=false; LIFT.e=clamp(Number(ms)||0,0,LIFT.S.done); LIFT.base=LIFT.e; LIFT.tStart=-1;
+      LIFT.landed=LIFT.e>=LIFT.S.land; LIFT.rippled=LIFT.e>=LIFT.S.rp;
+      if(opts.logoFullScale!==false) holdFullScale(true);
+      liftRender(); releaseLoop();
+    },
+    setSpeed(x){ LIFT.base=LIFT.e; LIFT.tStart=-1; LIFT.speed=Math.max(0.01, Number(x)||1); },
+    get ghost(){ return !!LIFT.ghost; },
+    get startedAt(){ return LIFT.startedAt; },
+    setGhost(on){ LIFT.ghost=!!on; if(LIFT.S) liftRender(); },
+    refresh(){ if(LIFT.S){ LIFT.S=liftSchedule(); LIFT.e=Math.min(LIFT.e, LIFT.S.done); if(!LIFT.playing) liftRender(); } },
+    relayout(){ LIFT.pix=null; if(LIFT.S){ liftLayout(); if(!LIFT.playing) liftRender(); } },
   } : null;
   let fadeDelay=opts.pageLoadDelay||0;
   const fadeDuration=Math.max(0, Number(opts.pageLoadDuration)||0);
@@ -1555,6 +2267,17 @@ function createInstance(ctn, opts){
       if(changed) applySize();
     }
   }
+  // ripple speed curve: 0 linear · 1 ease in-out (v1.12) · 2 ease out · 3 expo out · 4 cubic in-out
+  function rippleEaseFn(x){
+    if(opts.rippleEase===false) return x;
+    const c=Math.round(Number(opts.rippleCurve??1));
+    if(c===0) return x;
+    if(c===2) return 1-Math.pow(1-x,3);
+    if(c===3) return x>=1?1:1-Math.pow(2,-10*x);
+    if(c===4) return x<0.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;
+    return x<0.5?2*x*x:1-Math.pow(-2*x+2,2)/2;
+  }
+  let lastTf=null;
   function update(t){
     rafId=requestAnimationFrame(update);
     if(t-lastFrame<(warmActive?(lastFrame?warmInterval:0):frameInterval)) return;
@@ -1563,9 +2286,7 @@ function createInstance(ctn, opts){
     if(!opts.pause) program.uniforms.iTime.value=(t*0.001+timeOffset)*opts.timeScale;
     if(opts.ripple && rippleTriggered){
       const rawRp=Math.min((t-rippleStartTime)/rippleDurationRef,1.0);
-      const rp=opts.rippleEase!==false
-        ?(rawRp<0.5?2*rawRp*rawRp:1-Math.pow(-2*rawRp+2,2)/2)
-        :rawRp;
+      const rp=rippleEaseFn(rawRp);
       program.uniforms.uRippleProgress.value=rp;
       if(opts.aftershock && !aftershockTriggered && rp>=aftershockTriggerAtRef){
         aftershockTriggered=true;
@@ -1590,7 +2311,7 @@ function createInstance(ctn, opts){
         if(program.uniforms.uAftershockActive.value<0.5)
           program.uniforms.uAftershockActive.value=1;
         const rawAp=Math.min(elapsed/aftershockDurationRef,1.0);
-        const ap=rawAp<0.5?2*rawAp*rawAp:1-Math.pow(-2*rawAp+2,2)/2;
+        const ap=rippleEaseFn(rawAp);
         program.uniforms.uAftershockProgress.value=ap;
         if(mwpWaveStartTime<0 && ap>=mwpWaveAtRef) mwpWaveStartTime=t;
         if(ap>=1.0 && program.uniforms.uAftershockActive.value>0.5)
@@ -1604,6 +2325,8 @@ function createInstance(ctn, opts){
         wp>=1?0:(wp<0.1?wp*10:Math.pow(1-(wp-0.1)/0.9,2));
     }
     if(LT.playing) stepLogo(t);
+    if(LIFT.playing) stepLift(t);
+    pulseStep(t);
     maybeReleaseFull();
     if(opts.pageLoadAnimation && (!opts.ripple || pageLoadFallback) && !fieldDriven){
       if(loadStart===0) loadStart=t;
@@ -1614,8 +2337,9 @@ function createInstance(ctn, opts){
     if(opts.mouseReact){
       smoothMouse.x+=(mouse.x-smoothMouse.x)*0.08;
       smoothMouse.y+=(mouse.y-smoothMouse.y)*0.08;
-      program.uniforms.uMouse.value[0]=smoothMouse.x;
-      program.uniforms.uMouse.value[1]=smoothMouse.y;
+      const mu=ctnToCanvasUv(smoothMouse.x, smoothMouse.y);
+      program.uniforms.uMouse.value[0]=mu[0];
+      program.uniforms.uMouse.value[1]=mu[1];
     }
     if(opts.tiltReact){
       const maxDeg=tiltStrengthRef*10;
@@ -1623,10 +2347,17 @@ function createInstance(ctn, opts){
         tiltTargetX=(0.5-smoothMouse.y)*maxDeg;
         tiltTargetY=(smoothMouse.x-0.5)*maxDeg;
       }
-      if(logoActive){ tiltTargetX=0; tiltTargetY=0; }   // shader heart and HTML heart must line up
+      if(logoActive || (LIFT.playing && !LIFT.landed)){ tiltTargetX=0; tiltTargetY=0; }   // shader heart and HTML heart must line up
       tiltX+=(tiltTargetX-tiltX)*0.05;
       tiltY+=(tiltTargetY-tiltY)*0.05;
-      gl.canvas.style.transform=`perspective(600px) rotateX(${tiltX.toFixed(2)}deg) rotateY(${tiltY.toFixed(2)}deg) scale(1.06)`;
+    }
+    {
+      const bloom=1+(Number(opts.rasterBloom)||0)*PULSE.k;
+      const sc=(overscanOn?1:TILT_SCALE)*bloom;
+      const tf=opts.tiltReact
+        ? `perspective(600px) rotateX(${tiltX.toFixed(2)}deg) rotateY(${tiltY.toFixed(2)}deg) scale(${sc.toFixed(4)})`
+        : (bloom!==1 ? `scale(${bloom.toFixed(4)})` : '');
+      if(tf!==lastTf){ lastTf=tf; gl.canvas.style.transform=tf; }
     }
     if(phosphorOnRef && phosphorRef>0.5){
       ensurePhosphor();
@@ -1676,7 +2407,13 @@ function createInstance(ctn, opts){
   );
   function setParam(key,val){
     const uName=unifMap[key];
+    opts[key]=val;
+    if((PULSE.on || PULSE.preview) && (key in PULSE.rest)){
+      PULSE.rest[key]=Number(val);            // the pulse settles back to the new value
+      if(PULSE.preview) return;               // the peak stays on screen while previewing
+    }
     if(uName && program.uniforms[uName]!=null) program.uniforms[uName].value=val;
+    if(key==='overscanMargin' && overscanOn){ applySize(); if(liftOn && LIFT.S) liftLayout(); }
     if(key==='rippleDuration') rippleDurationRef=val;
     if(key==='rippleFadeOut') rippleFadeOutRef=val;
     if(key==='mwpWaveDuration') mwpWaveDurationRef=val;
@@ -1687,7 +2424,9 @@ function createInstance(ctn, opts){
     if(key==='aftershockDuration') aftershockDurationRef=val;
     if(key==='aftershockTriggerAt') aftershockTriggerAtRef=val;
     if(key==='aftershock') opts.aftershock=val;
-    if(key==='tiltStrength') tiltStrengthRef=val;
+    if(key==='tiltStrength'){ tiltStrengthRef=val; if(overscanOn){ applySize(); if(liftOn && LIFT.S) liftLayout(); } }
+    if(LIFT_OPTION_KEYS[key]){ opts[key]=val; if(key==='degaussPurity' && program.uniforms.uDegPur) program.uniforms.uDegPur.value=val; if(LIFT.S){ LIFT.S=liftSchedule(); liftLayout(); if(!LIFT.playing) liftRender(); } }
+    if(key==='curvature' && liftOn && LIFT.S){ liftLayout(); if(!LIFT.playing) liftRender(); }
     if(key==='tiltReact'){ opts.tiltReact=val; if(!val) gl.canvas.style.transform=''; }
     if(key==='timeScale') opts.timeScale=val;
     if(LOGO_OPTION_KEYS[key]){ opts[key]=val; if(logoTimeline && !FEATURE_PARAMS[key]) logoTimeline.refresh(); }
@@ -1699,6 +2438,7 @@ function createInstance(ctn, opts){
     }
   }
   function getParam(key){
+    if((PULSE.on || PULSE.preview) && (key in PULSE.rest)) return PULSE.rest[key];
     const uName=unifMap[key];
     if(uName && program.uniforms[uName]!=null) return program.uniforms[uName].value;
     if(key==='rippleDuration') return rippleDurationRef;
@@ -1715,11 +2455,8 @@ function createInstance(ctn, opts){
     return opts[key];
   }
   function retrigger(){
-    const originEl = safeQuery(opts.rippleOriginSelector) || ctn;
-    const er=(originEl||ctn).getBoundingClientRect();
-    const cr=ctn.getBoundingClientRect();
-    program.uniforms.uRippleOrigin.value[0]=Math.max(0,Math.min(1,(er.left+er.width*0.5-cr.left)/cr.width));
-    program.uniforms.uRippleOrigin.value[1]=Math.max(0,Math.min(1,1-(er.top+er.height*0.5-cr.top)/cr.height));
+    setRippleOrigin();
+    pulseStart(performance.now());
     program.uniforms.uRippleActive.value=1;
     program.uniforms.uRippleProgress.value=0;
     program.uniforms.uPageLoadProgress.value=0;
@@ -1730,6 +2467,7 @@ function createInstance(ctn, opts){
     program.uniforms.uMwpWaveEnv.value=0;
     rippleTriggered=true;
     rippleStartTime=performance.now();
+    if(liftOn && LIFT.S && !LIFT.playing) program.uniforms.uPageLoadProgress.value=1;
     releaseLoop();
     aftershockTriggered=false;
     aftershockStartTime=-1;
@@ -1738,16 +2476,147 @@ function createInstance(ctn, opts){
   }
   const api = { ctn, opts, setParam, getParam, retrigger, ready, hasRipple: opts.ripple,
     relayout, setFieldProgress, setLogoProgress, setDegaussProgress, setLogoVisible, resolveLogo,
-    holdFullScale, reducedMotion, logoTimeline };
+    holdFullScale, reducedMotion, logoTimeline, liftTimeline,
+    pulsePreview, setPulsePeak, getPulsePeak, get overscanScale(){ return overscanOn ? osScale : 0; },
+    get pulseLevel(){ return PULSE.k; } };
   return api;
 }
+// One line per control, shown in the panel's help bar on hover / focus.
+const HELP = {
+  // ripple
+  rippleDuration: 'How long the ring takes to travel its full reach. Longer = slower, more stately.',
+  rippleCurve: 'The ring\'s speed over its life. ease in-out (default) starts and ends slow; ease out / expo out leave fast and decelerate like a real shockwave; linear is constant.',
+  rippleReach: 'How far the ring travels before it ends, in screen heights from the origin (2.5 clears most screens from a corner).',
+  rippleColorFalloff: 'Trail curve: how fast the coloured wash behind the ring fades toward the origin. Higher = the colour hugs the ring; lower = a broad wash.',
+  rippleColorAmbient: 'Trail strength: how much colour is left inside the ring after it passes. 0 = only the ring itself is coloured.',
+  rippleColorStrength: 'Overall intensity of the ripple\'s colour (ring + trail). Above 1 it drives into the blend mode.',
+  blendMode: 'How the ripple colour mixes with the glyphs: screen (soft, never clips), add (hot, clips to white), overlay (contrasty), soft (gentle).',
+  rippleBrightness: 'Glyph boost: extra brightness on the glyphs right at the ring front.',
+  rippleBrightnessFalloff: 'Glow width: how thick the bright band at the ring front is. Also the colour ring\'s width unless colour ring width is set.',
+  rippleFadeOut: 'Once the ring reaches its end, how long its colour takes to fade away.',
+  rippleRingWidth: 'Donut thickness: how wide the band of colour is. 0 = follow glow width (the v1.12 behaviour).',
+  rippleEdgeSoft: 'Donut outer edge: 0 = a hard wavefront; higher = it arrives as a soft swell (the softening sits just ahead of the ring).',
+  rippleInnerFalloff: 'Donut inner edge: 1 = the colour fades all the way across the band from the front (v1.12, a thin bright line); lower = a solid band of full colour with a sharper inner edge, so the intense colour shows through as it sweeps. 0 = a hard-edged band.',
+  rippleHotCore: 'Pushes the crest of the ring toward white, like an over-driven phosphor. 0 = pure brand colour.',
+  rippleAspect: 'Squashes the ring into an ellipse. 1 = circle, below 1 = taller, above 1 = wider (a CRT-style horizontal sweep).',
+  rippleWobbleFreq: 'How many lobes the wobble has around the ring: low = a gentle egg shape, high = a rippling, frilled edge. Needs wave wobble above 0.',
+  rippleGlass: 'Lets the ring colour light the slate between the glyphs, not only the lit glyphs. At 0 the ripple shows only where glyphs are lit, so a dark resting field hides it.',
+  aftershockReach: 'How far the aftershock travels. 0 = the same as the ripple.',
+  aftershockWidth: 'The aftershock ring\'s thickness. 0 = the same as the ripple\'s colour ring.',
+  aftershockTrail: 'Colour left inside the aftershock ring (uses the ripple\'s trail curve). 0 = just the ring.',
+  aftershockColorShift: 'Rotates the aftershock\'s colours against the ripple\'s, so the two rings read as different colours.',
+  logoCurveRamp: 'Flat start: the glass begins flat so the heart forms on a straight grid, then curves to its normal curvature on the curvature lane.',
+  logoCurveFrom: 'Curvature at the start of the resolve (0 = perfectly flat). It ramps from here to the field curvature.',
+  logoCurveOffset: 'When the curvature ramp starts, relative to the first lift (negative = before).',
+  logoCurveMs: 'How long the glass takes to curve to its normal shape.',
+  rippleEchoes: 'Extra rings trailing the main one (0–3). Also applies to the aftershock.',
+  rippleEchoGap: 'Distance between the main ring and each echo.',
+  rippleEchoDecay: 'How much each echo is dimmer than the one before (1 = as bright, 0 = invisible).',
+  rippleColorMode: 'How the three brand colours are laid through the ripple: vertical (v1.12: teal bottom → coral → raspberry top), horizontal, radial bands (rings of colour by distance), around origin (a colour wheel), over time (the whole ring shifts colour as it travels), per glyph (each glyph its own brand colour).',
+  rippleColorScale: 'How many times the palette repeats across the distribution. 1 = once; 3 = three full cycles.',
+  rippleColorOffset: 'Rotates which colour lands where (0 → 1 = a full turn of raspberry → coral → teal).',
+  rippleColorSpin: 'Cycles the palette over time while the ripple plays. 0 = static.',
+  rippleColorBlend: 'Band edges: 1 = smooth gradients between colours, 0 = hard bands.',
+  aftershock: 'A second, quieter ring that follows the first.',
+  aftershockTriggerAt: 'When the aftershock leaves, as a fraction of the main ring\'s journey (0.05 = almost at once).',
+  aftershockDelay: 'Extra wait before the aftershock, on top of trigger at.',
+  aftershockDuration: 'How long the aftershock takes to travel.',
+  aftershockStrength: 'Brightness of the aftershock ring.',
+  rippleWobble: 'Makes the ring slightly irregular (not a perfect circle) and alive.',
+  rippleWarp: 'Bends the picture as the ring passes, like a lens shockwave.',
+  impactBurst: 'Horizontal tearing on the first moments of the ripple, the hit of the impact.',
+  pulseAttackMs: 'Pulse: how fast the field ramps from its resting values up to the peak values on impact.',
+  pulseHoldMs: 'Pulse: how long the field stays at the peak before decaying.',
+  pulseDecayMs: 'Pulse: how long it takes to settle back to the resting values.',
+  rasterBloom: 'At the pulse peak the whole picture swells by this much, like a CRT under a brightness spike.',
+  // mwp
+  mwpColorStrength: 'How strongly the M/W/P letters in the field show their brand colour.',
+  mwpDensity: 'How many cells can show an M/W/P letter.',
+  mwpFlickerSpeed: 'Speed of the letters\' scramble / decode flicker.',
+  mwpWaveDuration: 'Length of the heart-shaped wave of letters that follows the ripple.',
+  mwpWaveAt: 'When that wave starts, as a fraction of the ripple (or aftershock).',
+  heartStrength: 'Brightness of the big heart stamped into the field by that wave.',
+  heartScale: 'Size of that field heart, in cells per heart pixel.',
+  heartFalloff: 'How far that heart\'s glow spreads beyond its pixels.',
+  mwpLegible: 'Fraction of the time a letter is readable rather than scrambled.',
+  mwpGlitch: 'How glitchy a letter is while it decodes.',
+  // brand
+  brandMode: 'Brand colour cycling through the field: whole field, a gradient sweep, or per glyph.',
+  brandStrength: 'How much the brand colour replaces the field tint.',
+  brandSpeed: 'Speed of the brand colour cycle.',
+  brandSoftness: 'Crossfade between brand colours (0 = hard cuts).',
+  brandScale: 'Gradient sweep: how many colour bands fit across the screen.',
+  brandAngle: 'Gradient sweep: direction of the bands.',
+  // field
+  brightness: 'Overall glyph brightness.',
+  glyphGamma: 'Contrast of the glyphs: higher = only the strongest glyphs light, the rest fall to the slate.',
+  scanlineIntensity: 'Strength of the horizontal scanlines.',
+  glitchAmount: 'Horizontal sync glitches (the occasional sideways jump).',
+  flickerAmount: 'How often those glitches flicker on.',
+  noiseAmp: 'Strength of the slow noise that decides which glyphs are lit.',
+  curvature: 'CRT glass curvature. The lift straightens pixels off this as they leave the glass.',
+  mouseStrength: 'How much the field lights up around the cursor.',
+  timeScale: 'Master speed of all field motion.',
+  digitSize: 'Glyph size within its cell (bigger = smaller gap between glyphs).',
+  tiltStrength: 'How far the screen tilts toward the cursor. Overscan grows with it automatically.',
+  vignette: 'Darkens the corners of the visible screen (with overscan on, measured on what you see).',
+  retraceSweep: 'A faint bright band that rolls down the screen, like the raster retrace.',
+  noiseDetail: 'Adds a finer layer to the field noise.',
+  phosphorOn: 'Phosphor persistence: lit glyphs leave a fading afterglow. Also makes the ghost a lifted pixel leaves.',
+  phosphor: 'How long that afterglow lasts.',
+  chromaticAberration: 'Splits red and blue slightly apart, like misconverged CRT guns. Costs two extra field samples.',
+  dither: 'Fine grain to break up banding in gradients.',
+  overscanMargin: 'Extra canvas beyond what the tilt needs (only with overscan on).',
+  // lift resolve
+  logoOrigin: 'Where the heart forms in the field: mid-field (then glides to the HTML heart) or at the heart (beside its final spot).',
+  logoFieldMs: 'How long the field takes to fade in before anything else happens.',
+  logoHoldMs: 'Pause between the field arriving and the heart starting to form.',
+  logoPinMs: 'The heart\'s cells decode into their M / W / P letters, then fill into solid blocks.',
+  logoLiftHoldMs: 'A beat with the heart sitting solid in the glass before the first pixel lifts.',
+  logoLiftMs: 'How long a pixel takes to leave the glass: scanlines fade, it grows toward you and brightens.',
+  logoStaggerMs: 'Delay between the colour groups: raspberry (M), then coral (W), then teal (P).',
+  logoRowStagger: 'Delay per row inside a colour group, so each group peels off top to bottom.',
+  logoTravelMs: 'The glide from the field to the HTML heart\'s pixels (critically damped, no overshoot).',
+  logoDepth: 'How much a lifted pixel grows as it comes off the glass (toward you).',
+  logoBloom: 'Phosphor glow around a pixel while it is off the glass. Gone by the time it lands.',
+  logoQuiet: 'Calms the field cells around the forming heart so its shape reads.',
+  degaussOffset: 'When the degauss hits, relative to the first lift (negative = before).',
+  degaussMs: 'How long the degauss takes to settle.',
+  degaussAmp: 'How hard the glass shakes.',
+  degaussDecay: 'How quickly the shake dies away within its length (higher = a sharp thunk, lower = a long wobble).',
+  degaussPurity: 'Colour-purity blotches: drifting patches of tint across the glass during the degauss.',
+  logoRippleAt: 'When the ripple fires, relative to the landing (negative = while the pixels are still gliding).',
+};
+// Lift-resolve knobs in the panel: key, label, min, max, step.
+const LIFT_KNOBS = [
+  ['logoFieldMs', 'field fade-in', 0, 2500, 10],
+  ['logoHoldMs', 'hold', 0, 1500, 10],
+  ['logoPinMs', 'decode + fill', 100, 3000, 10],
+  ['logoLiftHoldMs', 'beat before lift', 0, 1500, 10],
+  ['logoLiftMs', 'leave the glass', 40, 2000, 10],
+  ['logoStaggerMs', 'M › W › P gap', 0, 800, 5],
+  ['logoRowStagger', 'row stagger', 0, 120, 1],
+  ['logoTravelMs', 'glide', 100, 3000, 10],
+  ['logoDepth', 'lift depth', 0, 0.4, 0.01],
+  ['logoBloom', 'off-glass bloom', 0, 1.5, 0.01],
+  ['logoQuiet', 'calm field', 0, 1, 0.01],
+  ['degaussOffset', 'degauss offset', -1500, 1500, 10],
+  ['degaussMs', 'degauss length', 100, 4000, 10],
+  ['degaussAmp', 'degauss shake', 0, 4, 0.05],
+  ['degaussDecay', 'degauss settle', 0, 12, 0.05],
+  ['degaussPurity', 'purity blotches', 0, 2, 0.05],
+  ['logoRippleAt', 'ripple vs landing', -1500, 1500, 10],
+  ['logoCurveFrom', 'start curvature', 0, 0.5, 0.01],
+  ['logoCurveOffset', 'curve offset', -3000, 2000, 10],
+  ['logoCurveMs', 'curve length', 0, 4000, 10],
+];
 function buildDebugPanel(instances){
   if(!instances.length) return;
   if(!document.getElementById('ft-debug-styles')){
     const s=document.createElement('style');
     s.id='ft-debug-styles';
     s.textContent=`
-#ft-debug{position:fixed;top:16px;right:16px;z-index:99999;width:310px;max-height:88vh;
+#ft-debug{position:fixed;top:16px;right:16px;z-index:99999;width:340px;max-height:88vh;
 display:flex;flex-direction:column;background:rgba(8,12,16,0.93);color:#ccc;
 font:11px/1.5 monospace;border:1px solid #2a3a40;border-radius:8px;
 box-shadow:0 8px 32px rgba(0,0,0,0.6);backdrop-filter:blur(10px);}
@@ -1771,7 +2640,7 @@ display:flex;align-items:center;justify-content:center;padding:0;}
 .ft-sec{padding:4px 12px 2px;color:#3dc096;font-size:10px;letter-spacing:.1em;
 border-top:1px solid #1a2a30;margin-top:4px;}
 .ft-sec:first-child{border-top:none;margin-top:0;}
-.ft-row{display:grid;grid-template-columns:100px 1fr 40px;align-items:center;
+.ft-row{display:grid;grid-template-columns:118px 1fr 40px;align-items:center;
 gap:4px;padding:2px 12px;}
 .ft-row label{color:#778;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default;}
 .ft-row input[type=range]{accent-color:#3dc096;cursor:pointer;width:100%;}
@@ -1824,6 +2693,27 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
 .ft-ph{position:absolute;top:-3px;bottom:-3px;width:2px;background:#fff;box-shadow:0 0 6px rgba(255,255,255,0.6);pointer-events:none;}
 .ft-tk{position:absolute;left:0;right:0;bottom:-14px;height:12px;font-size:9px;color:#557;}
 .ft-tk i{position:absolute;font-style:normal;transform:translateX(-50%);}
+.ft-sec{cursor:pointer;user-select:none;}
+.ft-sec::before{content:'▾ ';color:#2a6a58;}
+.ft-sec.ft-shut::before{content:'▸ ';}
+.ft-sbox.ft-shut{display:none;}
+#ft-help{padding:6px 12px;min-height:44px;color:#8aa;border-top:1px solid #1a2a30;flex-shrink:0;font-size:10.5px;line-height:1.45;}
+#ft-help b{color:#3dc096;font-weight:normal;}
+#ft-mode{display:flex;gap:5px;align-items:center;padding:6px 12px;border-top:1px solid #1a2a30;margin-top:4px;flex-wrap:wrap;}
+#ft-mode span{color:#667;}
+#ft-mode button{background:rgba(255,255,255,0.06);color:#bbb;border:1px solid #2a3a40;border-radius:4px;cursor:pointer;font:11px monospace;padding:2px 8px;}
+#ft-mode button[aria-pressed=true]{border-color:#F28745;color:#F28745;}
+#ft-debug.ft-peak .ft-sbox>.ft-row input[type=range]{accent-color:#F28745;}
+#ft-debug.ft-peak .ft-sbox>.ft-row.ft-np{opacity:.3;pointer-events:none;}
+.ft-row.ft-pk label{color:#F28745;}
+.ft-seg[data-k]{cursor:grab;}
+.ft-seg .ft-h{position:absolute;right:0;top:0;bottom:0;width:6px;cursor:ew-resize;background:rgba(255,255,255,0.25);}
+.ft-seg.p{background:linear-gradient(90deg,#3b5a62,#8fa7ad);}
+.ft-seg.m{background:#E84F5C;}.ft-seg.w{background:#F28745;}.ft-seg.t{background:#3DC096;color:#0b1a16;}
+.ft-seg.c{background:linear-gradient(90deg,#1d2b30,#7a8f95);}
+.ft-seg.g{background:linear-gradient(90deg,rgba(255,255,255,0.35),rgba(255,255,255,0.08));}
+.ft-mk.rp{pointer-events:auto;cursor:ew-resize;border-left-width:2px;}
+.ft-mk.rp::after{content:'';position:absolute;left:-6px;top:0;bottom:0;width:12px;}
 `;
     document.head.appendChild(s);
   }
@@ -1840,6 +2730,7 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
 <button id="ft-next">▶</button>
 </div>
 <div id="ft-dbb"></div>
+<div id="ft-help">Hover any control to see what it does.</div>
 <div id="ft-dbf">
 <button id="ft-retrigger">↺ re-trigger</button>
 <button id="ft-copy">⎘ copy values</button>
@@ -1852,8 +2743,18 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
     panel.querySelector('#ft-next').style.visibility='hidden';
   }
   const body=panel.querySelector('#ft-dbb');
+  const helpBar=panel.querySelector('#ft-help');
   const logoBox=document.createElement('div');
   body.appendChild(logoBox);
+  // editing rest (the field's resting values) or peak (where the pulse drives it)
+  const modeBar=document.createElement('div');
+  modeBar.id='ft-mode';
+  modeBar.innerHTML='<span>editing</span><button data-m="rest" aria-pressed="true">rest</button><button data-m="peak" aria-pressed="false">pulse peak</button>'+
+    '<button data-m="preset" title="Load the saved pulse peak (24 Nov) to tune from" style="margin-left:auto;">load preset</button>'+
+    '<button data-m="clear" title="Remove this terminal\'s pulse peak values (no pulse)">clear peak</button>';
+  body.appendChild(modeBar);
+  let editMode='rest';
+  const showHelp=(key,label)=>{ const h=HELP[key]; helpBar.innerHTML=h ? '<b>'+label+'</b> · '+h.replace(/&/g,'&amp;').replace(/</g,'&lt;') : '<b>'+label+'</b> · <span style="color:#556">'+key+'</span>'; };
   const ilabel=panel.querySelector('#ft-ilabel');
   let currentIdx=0;
   const inst=()=>instances[currentIdx];
@@ -1900,10 +2801,19 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
   const STORE='ft-debug';
   const store=(()=>{ try{ return JSON.parse(localStorage.getItem(STORE)||'null')||{}; }catch(e){ return {}; } })();
   store.values=store.values||{};
+  store.peaks=store.peaks||{};
+  store.shut=store.shut||{};
   const saveStore=()=>{ if(!store.keep) return; try{ localStorage.setItem(STORE, JSON.stringify(store)); }catch(e){} };
   function setP(key,v){
-    inst().setParam(key,v);
     const n=instName(currentIdx);
+    if(editMode==='peak' && inputs[key] && inputs[key].peakable){
+      inst().setPulsePeak(key,v);
+      (store.peaks[n]=store.peaks[n]||{})[key]=v;
+      markPeak(key);
+      saveStore();
+      return;
+    }
+    inst().setParam(key,v);
     (store.values[n]=store.values[n]||{})[key]=v;
     saveStore();
   }
@@ -1911,19 +2821,41 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
     instances.forEach((it,i)=>{
       const vals=store.values[instName(i)];
       if(vals) Object.keys(vals).forEach(k=>{ try{ it.setParam(k,vals[k]); }catch(e){} });
+      const pk=store.peaks[instName(i)];
+      if(pk && it.setPulsePeak) Object.keys(pk).forEach(k=>{ try{ it.setPulsePeak(k,pk[k]); }catch(e){} });
     });
   }
-  let lastSec=null;
-  SLIDERS.forEach(([key,,label,min,max,step,section,type])=>{
+  let lastSec=null, secBox=body;
+  function makeSection(title, into){
+    const sec=document.createElement('div');
+    sec.className='ft-sec';
+    sec.textContent=title;
+    const box=document.createElement('div'); box.className='ft-sbox';
+    const shut=!!store.shut[title];
+    sec.classList.toggle('ft-shut',shut); box.classList.toggle('ft-shut',shut);
+    sec.addEventListener('click',()=>{
+      const now=!box.classList.contains('ft-shut');
+      sec.classList.toggle('ft-shut',now); box.classList.toggle('ft-shut',now);
+      store.shut[title]=now; saveStore();
+    });
+    into.appendChild(sec); into.appendChild(box);
+    return box;
+  }
+  function hoverHelp(row,key,label){
+    row.addEventListener('mouseenter',()=>showHelp(key,label));
+    row.addEventListener('focusin',()=>showHelp(key,label));
+  }
+  SLIDERS.forEach(([key,uName,label,min,max,step,section,type])=>{
     if(section!==lastSec){
-      const sec=document.createElement('div');
-      sec.className='ft-sec';
-      sec.textContent=section;
-      body.appendChild(sec);
+      secBox=makeSection(section, body);
       lastSec=section;
     }
+    const body_=body;
+    { const body=secBox;
     const row=document.createElement('div'); row.className='ft-row';
-    const lbl=document.createElement('label'); lbl.title=key; lbl.textContent=label;
+    const lbl=document.createElement('label'); lbl.title=HELP[key]||key; lbl.textContent=label;
+    hoverHelp(row,key,label);
+    if(!uName) row.classList.add('ft-np');
     if(type==='bool'){
       const inp=document.createElement('input');
       inp.type='checkbox';
@@ -1933,7 +2865,7 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
       const spacer=document.createElement('span');
       row.appendChild(lbl); row.appendChild(inp); row.appendChild(spacer);
       body.appendChild(row);
-      inputs[key]={input:inp,val:null};
+      inputs[key]={input:inp,val:null,row,peakable:!!uName};
     } else if(type==='select'){
       const sel=document.createElement('select');
       sel.style.cssText='width:100%;background:rgba(255,255,255,0.07);color:#ddd;'+
@@ -1948,7 +2880,7 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
       const spacer=document.createElement('span');
       row.appendChild(lbl); row.appendChild(sel); row.appendChild(spacer);
       body.appendChild(row);
-      inputs[key]={input:sel,val:null};
+      inputs[key]={input:sel,val:null,row,peakable:!!uName};
     } else {
       const inp=document.createElement('input');
       inp.type='range'; inp.min=min; inp.max=max; inp.step=step;
@@ -1962,8 +2894,53 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
       });
       row.appendChild(lbl); row.appendChild(inp); row.appendChild(val);
       body.appendChild(row);
-      inputs[key]={input:inp,val};
+      inputs[key]={input:inp,val,row,peakable:!!uName};
     }
+    }
+  });
+  // a peak value that differs from rest shows its label in orange
+  function markPeak(key){
+    const r=inputs[key]; if(!r || !r.peakable || !inst().getPulsePeak) return;
+    const pk=inst().getPulsePeak(key), rest=inst().getParam(key);
+    r.row.classList.toggle('ft-pk', pk!==null && Math.abs(pk-Number(rest))>1e-6);
+  }
+  function showValue(key){
+    const r=inputs[key]; if(!r) return;
+    const step=+(r.input.step||1);
+    let v=inst().getParam(key)??DEFAULTS[key]??0;
+    if(editMode==='peak' && r.peakable && inst().getPulsePeak){ const pk=inst().getPulsePeak(key); if(pk!==null) v=pk; }
+    if(r.input.type==='checkbox') r.input.checked=!!v;
+    else if(r.input.tagName==='SELECT') r.input.value=Math.round(v);
+    else { r.input.value=v; if(r.val) r.val.textContent=fmt(v,step); }
+  }
+  function setEditMode(m){
+    editMode=m;
+    panel.classList.toggle('ft-peak', m==='peak');
+    modeBar.querySelectorAll('button[data-m=rest],button[data-m=peak]').forEach(b=>b.setAttribute('aria-pressed', String(b.getAttribute('data-m')===m)));
+    if(inst().pulsePreview) inst().pulsePreview(m==='peak');
+    Object.keys(inputs).forEach(k=>{ showValue(k); markPeak(k); });
+    helpBar.innerHTML = m==='peak'
+      ? '<b>pulse peak</b> · The field is held at its peak. Orange sliders set where each value goes on the ripple impact; it settles back to rest over the PULSE timings. Greyed rows can\'t pulse.'
+      : '<b>rest</b> · The field\'s resting values, where it sits between pulses. Orange labels have a different peak.';
+  }
+  modeBar.addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b) return;
+    const m=b.getAttribute('data-m');
+    if(m==='preset'){
+      const n=instName(currentIdx);
+      Object.keys(PULSE_PRESET).forEach(k=>{ inst().setPulsePeak(k,PULSE_PRESET[k]); (store.peaks[n]=store.peaks[n]||{})[k]=PULSE_PRESET[k]; });
+      saveStore();
+      Object.keys(inputs).forEach(k=>{ showValue(k); markPeak(k); });
+      return;
+    }
+    if(m==='clear'){
+      const pk=inst().opts.pulsePeak||{};
+      Object.keys(pk).forEach(k=>inst().setPulsePeak(k,null));
+      delete store.peaks[instName(currentIdx)]; saveStore();
+      Object.keys(inputs).forEach(k=>{ showValue(k); markPeak(k); });
+      return;
+    }
+    setEditMode(m);
   });
   function loadInst(idx){
     currentIdx=idx;
@@ -1971,18 +2948,8 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
       ? `${instName(idx)}  ${idx+1}/${instances.length}`
       : instName(idx);
     markSelected();
-    SLIDERS.forEach(([key,,,,,step,,type])=>{
-      if(!inputs[key]) return;
-      if(type==='bool'){
-        inputs[key].input.checked=!!(inst().getParam(key)??DEFAULTS[key]);
-      } else if(type==='select'){
-        inputs[key].input.value=Math.round(inst().getParam(key)??DEFAULTS[key]??0);
-      } else {
-        const v=inst().getParam(key)??DEFAULTS[key]??0;
-        inputs[key].input.value=v;
-        if(inputs[key].val) inputs[key].val.textContent=fmt(v,step);
-      }
-    });
+    instances.forEach((it,i)=>{ if(i!==idx && it.pulsePreview) it.pulsePreview(false); });
+    setEditMode(editMode);
     buildLogo();
     const btn=panel.querySelector('#ft-retrigger');
     btn.disabled=!inst().hasRipple;
@@ -2001,9 +2968,21 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
       const v=inst().getParam(key)??DEFAULTS[key];
       out+=type==='bool'
         ? `  ${key}: ${!!v},\n`
-        : `  ${key}: ${fmt(v,step)},\n`;
+        : `  ${key}: ${step<0.01 ? (+v).toFixed(3) : fmt(v,step)},\n`;
     });
+    const pk=inst().opts.pulsePeak;
+    if(pk && Object.keys(pk).length){
+      out+='  // pulse peak: where the field goes on the ripple impact\n  pulsePeak: {\n';
+      SLIDERS.forEach(([key,,,,,step])=>{ if(pk[key]!=null) out+=`    ${key}: ${fmt(pk[key],step)},\n`; });
+      out+='  },\n';
+    }
     out+='};';
+    if(inst().liftTimeline){
+      out+='\n// lift resolve: site config (FaultyTerminalConfig / data-ft-opts)\nconst LIFT = {\n';
+      out+=`  logoOrigin: '${inst().getParam('logoOrigin')}',\n  logoCurveRamp: ${inst().getParam('logoCurveRamp')!==false},\n`;
+      LIFT_KNOBS.forEach(([key])=>{ out+=`  ${key}: ${+(+inst().getParam(key)).toFixed(3)},\n`; });
+      out+='};';
+    }
     if(inst().logoTimeline){
       out+='\n// logo resolve: site config (FaultyTerminalConfig / data-ft-opts)\nconst LOGO = {\n';
       LOGO_KNOBS.forEach(([key])=>{ out+=`  ${key}: ${+(+inst().getParam(key)).toFixed(3)},\n`; });
@@ -2046,6 +3025,7 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
   let logoUi=null;
   function buildLogo(){
     logoBox.innerHTML=''; logoUi=null;
+    if(inst().liftTimeline) return buildLift();
     const lt=inst().logoTimeline;
     if(!lt) return;
     const it=inst();
@@ -2105,6 +3085,140 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
     logoUi={ lt, clock:q('[data-o=clock]'), stage:q('[data-o=stage]'), start:q('[data-o=start]'), track, pct };
     tickLogo();
   }
+
+  // ---- lift resolve: transport, draggable lanes, knobs ----
+  function liftStage(S,e){
+    if(e<S.f1) return 'field fades in';
+    if(e<S.p0) return 'hold';
+    if(e<S.p1) return 'pin · decode → fill';
+    if(e<S.l0) return 'beat';
+    if(e<S.lastLift+S.lMs) return 'lift M › W › P'+(e>=S.d0&&e<S.d1?' · degauss':'');
+    if(e<S.land) return 'glide'+(e>=S.d0&&e<S.d1?' · degauss':'');
+    if(e<S.rp) return 'landed · HTML heart';
+    return 'ripple + pulse';
+  }
+  function buildLift(){
+    const it=inst(), lt=it.liftTimeline;
+    logoBox.innerHTML='';
+    const box=makeSection('LIFT RESOLVE', logoBox);
+    box.innerHTML=`<div id="ft-logo">
+<div class="ft-lbar"><button class="ft-go" data-a="play" title="Replay the whole resolve">▶ play</button><button data-a="pause" title="Pause / resume">❚❚</button>
+<select data-a="speed" title="Playback speed"><option value="1">1×</option><option value="0.5">0.5×</option>
+<option value="0.25">0.25×</option><option value="0.1">0.1×</option></select>
+<select data-a="origin" title="${HELP.logoOrigin}"><option value="centre">forms mid-field</option><option value="target">forms at the heart</option></select>
+<label class="ft-chk" title="Show the final HTML heart at 45% over the resolve, to check alignment"><input type="checkbox" data-a="ghost"> ghost</label>
+<label class="ft-chk" title="${HELP.logoCurveRamp}"><input type="checkbox" data-a="flat"> flat start</label>
+<button data-a="reload" title="Reload the page: replays the whole intro">⟳</button></div>
+<div class="ft-lstat"><span data-o="clock">0 ms</span><span data-o="stage"></span></div>
+<div class="ft-track" data-o="track" style="height:138px"></div>
+<div style="color:#556;font-size:10px;margin-top:-6px;">drag a lane to move it · drag its bright end to resize · drag the ripple line · click to scrub</div>
+<div data-o="knobs"></div>
+<div class="ft-lstat"><span data-o="start"></span><button data-a="reset" style="padding:2px 6px;">reset timings</button></div></div>`;
+    const q=a=>box.querySelector(a);
+    const track=q('[data-o=track]'), knobs=q('[data-o=knobs]');
+    const knobRows={};
+    LIFT_KNOBS.forEach(([key,label,min,max,step])=>{
+      const row=document.createElement('div'); row.className='ft-row';
+      const lbl=document.createElement('label'); lbl.title=HELP[key]||key; lbl.textContent=label;
+      hoverHelp(row,key,label);
+      const inp=document.createElement('input'); inp.type='range'; inp.min=min; inp.max=max; inp.step=step;
+      inp.value=it.getParam(key);
+      const val=document.createElement('span'); val.className='ftv'; val.textContent=fmt(inp.value,step);
+      inp.addEventListener('input',()=>{ const v=parseFloat(inp.value); val.textContent=fmt(v,step); setLift(key,v,false); drawTrack(); });
+      row.appendChild(lbl); row.appendChild(inp); row.appendChild(val); knobs.appendChild(row);
+      knobRows[key]={inp,val,step};
+    });
+    function setLift(key,v,syncKnob){
+      const n=instName(currentIdx);
+      inst().setParam(key,v);
+      (store.values[n]=store.values[n]||{})[key]=v; saveStore();
+      if(syncKnob && knobRows[key]){ const k=knobRows[key]; k.inp.value=v; k.val.textContent=fmt(v,k.step); }
+      if(lt.refresh) lt.refresh();
+    }
+    // the track runs a little past the end so the ripple has room
+    const span=()=>{ const S=lt.schedule; return Math.max(S.done, S.rp)+700; };
+    function pct(ms){ return (ms/span()*100)+'%'; }
+    // lanes: [key, label, class, start, end, body-drag param, edge-drag param]
+    function lanes(S){
+      const grp=g=>[S.l0+g*S.st, S.l0+g*S.st+6*S.rs+S.lMs];
+      return [
+        ['field','field','f',0,S.f1,null,'logoFieldMs'],
+        ['pin','decode + fill','p',S.p0,S.p1,'logoHoldMs','logoPinMs'],
+        ['m','lift M','m',...grp(0),'logoLiftHoldMs','logoLiftMs'],
+        ['w','lift W','w',...grp(1),'stagger1','logoLiftMs'],
+        ['t','lift P','t',...grp(2),'stagger2','logoLiftMs'],
+        ['glide','glide','g',S.l0+S.lMs*0.5,S.land,'logoLiftHoldMs','logoTravelMs'],
+        ['deg','degauss','d',S.d0,S.d1,'degaussOffset','degaussMs'],
+      ].concat(S.cOn ? [['curve','curvature','c',S.c0,S.c1,'logoCurveOffset','logoCurveMs']] : []);
+    }
+    function drawTrack(){
+      const S=lt.schedule, end=span();
+      let h='';
+      lanes(S).forEach(([id,name,cls,a,b,bodyK,edgeK],i)=>{
+        h+=`<div class="ft-lane" style="top:${3+i*16}px"><div class="ft-seg ${cls}" data-k="${id}" style="left:${pct(a)};width:${pct(Math.max(0,b-a))}" title="${name}">${name}${edgeK?'<span class="ft-h" data-edge="1"></span>':''}</div></div>`;
+      });
+      h+=`<div class="ft-mk" style="left:${pct(S.land)}"><em>land · HTML</em></div><div class="ft-mk rp" data-k="ripple" style="left:${pct(S.rp)}" title="drag: ripple timing"><em>ripple</em></div>`;
+      h+='<div class="ft-ph" data-o="ph"></div><div class="ft-tk">';
+      const stepT=end>4000?1000:500;
+      for(let t=0;t<=end;t+=stepT) h+=`<i style="left:${pct(t)}">${(t/1000).toFixed(1)}s</i>`;
+      track.innerHTML=h+'</div>';
+    }
+    drawTrack();
+    let drag=null;
+    track.addEventListener('pointerdown',e=>{
+      track.setPointerCapture(e.pointerId);
+      const seg=e.target.closest('[data-k]');
+      const r=track.getBoundingClientRect(), msPx=span()/r.width;
+      if(seg){
+        const id=seg.getAttribute('data-k'), edge=!!e.target.closest('[data-edge]');
+        const L=lanes(lt.schedule).find(l=>l[0]===id);
+        let key=null;
+        if(id==='ripple') key='logoRippleAt';
+        else if(L) key=edge?L[6]:L[5];
+        if(key){
+          const stag=key==='stagger1'?1:key==='stagger2'?2:0;
+          const real=stag?'logoStaggerMs':key;
+          drag={ key:real, div:stag||1, x0:e.clientX, v0:+inst().getParam(real), msPx };
+          const lbl=(id==='ripple'?'ripple':L[1])+(edge?' · length':' · timing');
+          showHelp(real, lbl);
+          e.preventDefault(); return;
+        }
+      }
+      drag=null; scrub(e.clientX);
+    });
+    track.addEventListener('pointermove',e=>{
+      if(!e.buttons) return;
+      if(drag){
+        let v=drag.v0+(e.clientX-drag.x0)*drag.msPx/drag.div;
+        const kn=LIFT_KNOBS.find(k=>k[0]===drag.key);
+        if(kn) v=clamp(Math.round(v/kn[4])*kn[4], kn[2], kn[3]);
+        setLift(drag.key, v, true); drawTrack();
+      } else scrub(e.clientX);
+    });
+    track.addEventListener('pointerup',()=>{ drag=null; });
+    function scrub(x){ const r=track.getBoundingClientRect(); lt.seek(clamp((x-r.left)/r.width,0,1)*span()); }
+    box.addEventListener('click',e=>{
+      const a=e.target.closest('[data-a]'); if(!a) return;
+      const act=a.getAttribute('data-a');
+      if(act==='play') lt.play();
+      if(act==='pause') lt.playing ? lt.pause() : lt.resume();
+      if(act==='reload') location.reload();
+      if(act==='reset'){
+        LIFT_KNOBS.forEach(([key])=>setLift(key, key in LIFT_DEFAULTS ? LIFT_DEFAULTS[key] : DEFAULTS[key], true));
+        drawTrack();
+      }
+    });
+    const spd=q('[data-a=speed]'); spd.value=String(lt.speed);
+    spd.addEventListener('change',()=>lt.setSpeed(parseFloat(spd.value)));
+    const org=q('[data-a=origin]'); org.value=String(it.getParam('logoOrigin')).toLowerCase()==='target'?'target':'centre';
+    org.addEventListener('change',()=>{ setLift('logoOrigin', org.value, false); lt.play(); });
+    const gh=q('[data-a=ghost]'); gh.checked=lt.ghost;
+    gh.addEventListener('change',()=>lt.setGhost(gh.checked));
+    const fl=q('[data-a=flat]'); fl.checked=it.getParam('logoCurveRamp')!==false;
+    fl.addEventListener('change',()=>{ setLift('logoCurveRamp', fl.checked, false); if(!fl.checked) it.setParam('curvature', it.getParam('curvature')); drawTrack(); });
+    logoUi={ lt, clock:q('[data-o=clock]'), stage:q('[data-o=stage]'), start:q('[data-o=start]'), track, pct, lift:true };
+    tickLogo();
+  }
   function stageAt(S,e){
     if(e<S.f1) return 'field fades in';
     if(e<S.r0) return 'hold';
@@ -2119,7 +3233,7 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
     if(!logoUi || panel.classList.contains('ft-hidden') && !popWin) return;
     const {lt,clock,stage,start,track,pct}=logoUi, S=lt.schedule, e=lt.time;
     clock.textContent=Math.round(e)+' ms'+(lt.playing?'':' · paused');
-    stage.textContent=stageAt(S,e);
+    stage.textContent=logoUi.lift ? liftStage(S,e) : stageAt(S,e);
     start.textContent=lt.startedAt?('started '+Math.round(lt.startedAt)+' ms after page load'):'';
     const ph=track.querySelector('[data-o=ph]'); if(ph) ph.style.left=pct(Math.min(e,S.done));
     tickId=requestAnimationFrame(tickLogo);
@@ -2426,7 +3540,7 @@ function init(root){
     if(ctn[INITED]) return;
     ctn[INITED] = true;
     const overrides = Object.assign({}, siteConfig(), parseAttrOpts(ctn));
-    const opts = applyReveal(Object.assign({}, DEFAULTS, overrides), overrides);
+    const opts = applyReveal(Object.assign({}, DEFAULTS, overrides.logoLift ? LIFT_DEFAULTS : null, overrides), overrides);
     try{
       const inst = createInstance(ctn, opts);
       instances.push(inst);
