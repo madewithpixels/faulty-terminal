@@ -1433,12 +1433,40 @@ function createInstance(ctn, opts){
   // scale × gridMul[0] as before and the rows follow the screen's shape; or,
   // with cellPx > 0, both come from that cell size in CSS px. uScale itself
   // (the field noise / pattern scale) is unchanged. gridLock sets its own grid.
+  // cellPx: a number of CSS px, or any CSS length — '1.4rem', 'clamp(…)',
+  // 'var(--ft-cell-size)' (a Webflow variable, whose modes can follow the
+  // breakpoints). A length is measured with a hidden element in the container
+  // and re-read on every resize, so a breakpoint change applies at once.
+  let cellProbe=null;
+  function resolveCellPx(){
+    const v=opts.cellPx;
+    if(typeof v==='number') return isFinite(v) && v>0 ? v : 0;
+    const s=String(v==null?'':v).trim();
+    if(!s) return 0;
+    if(isFinite(Number(s))) return Math.max(0, Number(s));
+    if(!cellProbe){
+      cellProbe=document.createElement('div');
+      cellProbe.setAttribute('aria-hidden','true');
+      cellProbe.className='ft-cell-probe';
+      Object.assign(cellProbe.style,{ position:'absolute', left:'0', top:'0', height:'0', padding:'0', border:'0',
+        visibility:'hidden', pointerEvents:'none' });
+      if(getComputedStyle(ctn).position==='static') ctn.style.position='relative';
+      ctn.appendChild(cellProbe);
+    }
+    if(cellProbe.dataset.v!==s){ cellProbe.style.width=''; cellProbe.style.width=s; cellProbe.dataset.v=s; }
+    const px=cellProbe.getBoundingClientRect().width;
+    if(!(px>0) && !cellProbe.dataset.warned){
+      cellProbe.dataset.warned='1';
+      console.warn('[faulty-terminal] cellPx "'+s+'" did not resolve to a length — using square cells from scale.');
+    }
+    return px>2 ? px : 0;
+  }
   function applyGrid(w,h){
     const S=canvasScale(), uS=overscanOn ? opts.scale*S/TILT_SCALE : opts.scale;
     program.uniforms.uScale.value=uS;
     if(gridOn) return;
     const gm=program.uniforms.uGridMul.value, base=opts.gridMul||[2,1];
-    const cp=Number(opts.cellPx)||0, sq=opts.squareCells!==false;
+    const cp=resolveCellPx(), sq=opts.squareCells!==false;
     if(cp>0){ gm[0]=w*S/(cp*uS*15); gm[1]=h*S/(cp*uS*15); }
     else if(sq){ gm[0]=base[0]; gm[1]=base[0]*h/Math.max(1,w); }
     else { gm[0]=base[0]; gm[1]=base[1]; }
@@ -2502,7 +2530,8 @@ function createInstance(ctn, opts){
     relayout, setFieldProgress, setLogoProgress, setDegaussProgress, setLogoVisible, resolveLogo,
     holdFullScale, reducedMotion, logoTimeline, liftTimeline,
     pulsePreview, setPulsePeak, getPulsePeak, get overscanScale(){ return overscanOn ? osScale : 0; },
-    get pulseLevel(){ return PULSE.k; } };
+    get pulseLevel(){ return PULSE.k; },
+    get cellSize(){ return resolveCellPx(); } };
   return api;
 }
 // One line per control, shown in the panel's help bar on hover / focus.
@@ -2581,7 +2610,7 @@ const HELP = {
   curvature: 'CRT glass curvature. The lift straightens pixels off this as they leave the glass.',
   mouseStrength: 'How much the field lights up around the cursor.',
   timeScale: 'Master speed of all field motion.',
-  cellPx: 'Cell size in CSS px, the same on every screen (use a different value per breakpoint for phones). 0 = the number of columns comes from scale, as before, and the cells are kept square.',
+  cellPx: 'Cell size in CSS px, the same on every screen. On a site, set it to a CSS value instead, e.g. var(--ft-cell-size) from a Webflow variable whose modes follow the breakpoints. 0 = the number of columns comes from scale, as before, and the cells are kept square.',
   digitSize: 'Glyph size within its cell (bigger = smaller gap between glyphs).',
   tiltStrength: 'How far the screen tilts toward the cursor. Overscan grows with it automatically.',
   vignette: 'Darkens the corners of the visible screen (with overscan on, measured on what you see).',
@@ -2933,6 +2962,9 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
     const r=inputs[key]; if(!r) return;
     const step=+(r.input.step||1);
     let v=inst().getParam(key)??DEFAULTS[key]??0;
+    if(typeof v==='string' && r.input.type==='range'){   // cellPx as a CSS value: show what it measures
+      r.input.value=inst().cellSize||0; if(r.val) r.val.textContent='css'; r.input.title=v; return;
+    }
     if(editMode==='peak' && r.peakable && inst().getPulsePeak){ const pk=inst().getPulsePeak(key); if(pk!==null) v=pk; }
     if(r.input.type==='checkbox') r.input.checked=!!v;
     else if(r.input.tagName==='SELECT') r.input.value=Math.round(v);
@@ -2991,6 +3023,7 @@ font-size:9px;line-height:13px;padding-left:3px;color:rgba(255,255,255,0.85);}
     SLIDERS.forEach(([key,,,,,step,section,type])=>{
       if(section!==lastSec){ out+=`  // ${section.toLowerCase()}\n`; lastSec=section; }
       const v=inst().getParam(key)??DEFAULTS[key];
+      if(typeof v==='string' && type!=='bool'){ out+=`  ${key}: '${v}',\n`; return; }
       out+=type==='bool'
         ? `  ${key}: ${!!v},\n`
         : `  ${key}: ${step<0.01 ? (+v).toFixed(3) : fmt(v,step)},\n`;
@@ -3432,6 +3465,8 @@ function coerceAttrValue(raw, key){
     console.warn('[faulty-terminal] ' + key + ' expects true/false, got:', v);
     return REJECTED;
   }
+  // cellPx also takes a CSS length: '22px', '1.4rem', 'var(--ft-cell-size)'
+  if(key === 'cellPx' && !isFinite(Number(v))) return v;
   if(typeof def === 'number'){
     const n = Number(v);
     if(v !== '' && isFinite(n)) return n;

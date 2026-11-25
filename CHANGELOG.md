@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.13.2 — cell size from CSS (Webflow variables)
+
+- `cellPx` also takes a CSS value: `'22px'`, `'1.4rem'`, `'clamp(…)'` or
+  `'var(--name)'`. It is measured with a hidden element in the container and
+  re-read on every resize, so a Webflow Size variable whose modes follow the
+  breakpoints sets the cell size per breakpoint with no code. Works from
+  `data-ft-cell-px` too. If the value doesn't resolve, the cells fall back to
+  1.13.1's square cells from `scale` (one console warning).
+- The debug panel shows the measured size for a CSS `cellPx` and copy values
+  keeps it as written. API: `instance.cellSize` (the size in px now).
+
 ## 1.13.1 — square cells
 
 - **Cells are square on every screen shape.** The field had a fixed 2:1 grid
