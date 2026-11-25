@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.13.1 — square cells
+
+- **Cells are square on every screen shape.** The field had a fixed 2:1 grid
+  (`gridMul: [2, 1]`), so cells were only square on a 2:1 screen: 1.25× taller
+  than wide on a 16:10 laptop, 2.7× on a portrait tablet and 4.4× on a phone in
+  portrait (440 × 956). The lift resolve forms the heart from those cells, so on
+  phones it started stretched; the field's glyphs were stretched too. Now the
+  columns still come from `scale` × `gridMul[0]` and the rows follow the
+  screen's shape. On a 2:1 desktop this is a sub-1% change.
+- **`cellPx`**: a cell size in CSS px, the same on every screen. Set it per
+  breakpoint (e.g. `setParam('cellPx', 22)` below 768px) for exact sizes; 0 (the
+  default) keeps the scale-based columns. `scale` still sets the size of the
+  field's noise pattern.
+- `squareCells: false` restores the 1.13.0 grid. `setParam('scale' | 'cellPx')`
+  now regrids live (the site's breakpoint script calls `setParam('scale')`).
+
 ## 1.13.0 — lift resolve, overscan, ripple shape and colour, pulse
 
 - **Lift resolve** (`logoLift: '<selector of the HTML heart>'`). The heart forms

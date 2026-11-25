@@ -86,6 +86,7 @@ const TUNING = {
   mouseStrength: 0.60,
   timeScale: 0.45,
   digitSize: 1.25,
+  cellPx: 0, // cell size in CSS px (0 = columns from scale, square cells)
   tiltStrength: 0.65,
   // field fx
   vignette: 0.35,
@@ -117,6 +118,7 @@ const DEFAULTS = {
   ...TUNING,
   scale: 2,
   gridMul: [2, 1],
+  squareCells: true, // v1.13.1: rows follow the screen shape so cells are square (false = v1.13.0 grid)
   pause: false,
   tint: '#366777',
   bgColor: '#2b464e',
@@ -311,6 +313,7 @@ const SLIDERS = [
   ['mouseStrength', 'uMouseStrength', 'mouse', 0.0, 2.0, 0.05, 'FIELD'],
   ['timeScale', null, 'time scale', 0.0, 3.0, 0.05, 'FIELD'],
   ['digitSize', 'uDigitSize', 'digit size', 0.5, 2.5, 0.05, 'FIELD'],
+  ['cellPx', null, 'cell size (px)', 0, 80, 1, 'FIELD'],
   ['tiltStrength', null, 'tilt strength', 0.0, 1.5, 0.05, 'FIELD'],
   ['vignette', 'uVignette', 'vignette', 0.0, 1.0, 0.05, 'FIELD FX'],
   ['retraceSweep', 'uSweep', 'retrace sweep', 0.0, 1.0, 0.05, 'FIELD FX'],
@@ -1424,9 +1427,26 @@ function createInstance(ctn, opts){
   const canvasScale = () => overscanOn ? osScale : (opts.tiltReact ? TILT_SCALE : 1);
   // container 0..1 uv (y up) -> canvas vUv
   const ctnToCanvasUv = (u,v) => overscanOn ? [0.5+(u-0.5)/osScale, 0.5+(v-0.5)/osScale] : [u,v];
+  // v1.13.1: square cells. The shader's cells are (uScale·gridMul·15) per canvas
+  // side, so a fixed gridMul [2, 1] only gives square cells on a 2:1 screen (a
+  // phone in portrait got cells 4× taller than wide). Now the columns come from
+  // scale × gridMul[0] as before and the rows follow the screen's shape; or,
+  // with cellPx > 0, both come from that cell size in CSS px. uScale itself
+  // (the field noise / pattern scale) is unchanged. gridLock sets its own grid.
+  function applyGrid(w,h){
+    const S=canvasScale(), uS=overscanOn ? opts.scale*S/TILT_SCALE : opts.scale;
+    program.uniforms.uScale.value=uS;
+    if(gridOn) return;
+    const gm=program.uniforms.uGridMul.value, base=opts.gridMul||[2,1];
+    const cp=Number(opts.cellPx)||0, sq=opts.squareCells!==false;
+    if(cp>0){ gm[0]=w*S/(cp*uS*15); gm[1]=h*S/(cp*uS*15); }
+    else if(sq){ gm[0]=base[0]; gm[1]=base[0]*h/Math.max(1,w); }
+    else { gm[0]=base[0]; gm[1]=base[1]; }
+  }
   function applySize(){
     const w=Math.max(1,ctn.offsetWidth), h=Math.max(1,ctn.offsetHeight);
     if(overscanOn) osScale=overscanFor(w,h);
+    applyGrid(w,h);
     const S=overscanOn?osScale:1;
     const sw=Math.max(1,Math.floor(w*S*renderScale)), sh=Math.max(1,Math.floor(h*S*renderScale));
     if(sw===sizedW && sh===sizedH && S===sizedS) return;
@@ -1436,7 +1456,6 @@ function createInstance(ctn, opts){
       const cs=gl.canvas.style, pc=(S*100).toFixed(4)+'%', off=(-(S-1)*50).toFixed(4)+'%';
       cs.position='absolute'; cs.width=pc; cs.height=pc; cs.left=off; cs.top=off; cs.maxWidth='none';
       // same on-screen cell pitch as v1.12's scale(1.06) canvas
-      program.uniforms.uScale.value=opts.scale*S/TILT_SCALE;
       program.uniforms.uOverscan.value=S;
     } else {
       gl.canvas.style.width='100%'; gl.canvas.style.height='100%';
@@ -2414,6 +2433,11 @@ function createInstance(ctn, opts){
     }
     if(uName && program.uniforms[uName]!=null) program.uniforms[uName].value=val;
     if(key==='overscanMargin' && overscanOn){ applySize(); if(liftOn && LIFT.S) liftLayout(); }
+    if(key==='scale' || key==='cellPx' || key==='squareCells'){
+      applyGrid(Math.max(1,ctn.offsetWidth), Math.max(1,ctn.offsetHeight));
+      if(gridOn) relayout();
+      if(liftOn && LIFT.S){ liftLayout(); if(!LIFT.playing) liftRender(); }
+    }
     if(key==='rippleDuration') rippleDurationRef=val;
     if(key==='rippleFadeOut') rippleFadeOutRef=val;
     if(key==='mwpWaveDuration') mwpWaveDurationRef=val;
@@ -2557,6 +2581,7 @@ const HELP = {
   curvature: 'CRT glass curvature. The lift straightens pixels off this as they leave the glass.',
   mouseStrength: 'How much the field lights up around the cursor.',
   timeScale: 'Master speed of all field motion.',
+  cellPx: 'Cell size in CSS px, the same on every screen (use a different value per breakpoint for phones). 0 = the number of columns comes from scale, as before, and the cells are kept square.',
   digitSize: 'Glyph size within its cell (bigger = smaller gap between glyphs).',
   tiltStrength: 'How far the screen tilts toward the cursor. Overscan grows with it automatically.',
   vignette: 'Darkens the corners of the visible screen (with overscan on, measured on what you see).',
