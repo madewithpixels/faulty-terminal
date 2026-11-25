@@ -241,10 +241,14 @@ const DEFAULTS = {
   // slider keys) and decays back to where it was. null = no pulse.
   pulsePeak: null,
 };
-// Lift-resolve values for the options it shares with the v1.11 resolve, so
-// the shipped resolve keeps its approved timings.
-const LIFT_DEFAULTS = { logoFieldMs: 270, logoHoldMs: 0, degaussOffset: -400, degaussMs: 2570,
-  degaussAmp: 1.6, degaussDecay: 7.1, logoRippleAt: -540 };
+// Lift-resolve defaults (v1.13.4: Michael's tuned values; the heart forms mid-field
+// and glides to the HTML heart). Applied only when logoLift is set, over DEFAULTS.
+const LIFT_DEFAULTS = {
+  logoOrigin: 'centre', logoCurveRamp: true,
+  logoFieldMs: 410, logoHoldMs: 0, logoPinMs: 1300, logoLiftHoldMs: 860, logoLiftMs: 920,
+  logoStaggerMs: 10, logoRowStagger: 39, logoTravelMs: 350, logoDepth: 0.17, logoBloom: 1.5, logoQuiet: 0.46,
+  degaussOffset: -1500, degaussMs: 3010, degaussAmp: 1.6, degaussDecay: 7.1, degaussPurity: 0.8,
+  logoRippleAt: -540, logoCurveFrom: 0, logoCurveOffset: -150, logoCurveMs: 1680 };
 const SLIDERS = [
   ['rippleDuration', null, 'duration (ms)', 300, 5000, 50, 'RIPPLE'],
   ['rippleColorFalloff', 'uRippleColorFalloff', 'trail curve', 0.1, 6.0, 0.1, 'RIPPLE'],

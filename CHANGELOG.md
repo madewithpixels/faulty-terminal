@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.13.4 — tuned lift-resolve defaults
+
+- The lift resolve now ships with the tuned timings: the heart forms mid-field (`logoOrigin: 'centre'`)
+  and glides to the HTML heart, with a longer pin (1300ms) and lift hold (860ms), a tight M → W → P
+  stagger (10ms, 39ms per row), a quicker glide (350ms) and an earlier, longer degauss
+  (-1500ms, 3010ms, purity 0.8). Field fade-in 410ms.
+- `LIFT_DEFAULTS` now carries every lift option, so the debug panel's reset returns to exactly these values.
+- TUNING unchanged. `cellPx` stays 0 in the library: on the site the footer snippet sets it from the
+  "FT cell size" Webflow variable.
+
 ## 1.13.3 — start after every deferred script
 
 - faulty-terminal now also waits for DOMContentLoaded when it runs as a deferred
