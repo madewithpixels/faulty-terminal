@@ -2052,7 +2052,13 @@ function createInstance(ctn, opts){
     });
     let ax, ay;
     if(String(opts.logoOrigin).toLowerCase()==='target'){ ax=(bx0+bx1)/2; ay=(by0+by1)/2; }
-    else { ax=LIFT.W/2; ay=LIFT.H/2; }
+    else {
+      // v1.13.5: the middle of what is visible (iOS toolbars can make the field taller than the screen)
+      const vv=window.visualViewport, vw=vv?vv.width:window.innerWidth, vh=vv?vv.height:window.innerHeight;
+      const ox=vv?vv.offsetLeft:0, oy=vv?vv.offsetTop:0;
+      ax=(vw>0)?clamp(ox+vw/2-cr.left,0,LIFT.W):LIFT.W/2;
+      ay=(vh>0)?clamp(oy+vh/2-cr.top,0,LIFT.H):LIFT.H/2;
+    }
     // cells are chosen on the glass as it is while the heart forms
     const S=LIFT.S, kPin=curveAt(S?S.p0:0,S);
     // keep the 9×7 footprint (and a cell of margin) on screen
@@ -2626,7 +2632,7 @@ const HELP = {
   dither: 'Fine grain to break up banding in gradients.',
   overscanMargin: 'Extra canvas beyond what the tilt needs (only with overscan on).',
   // lift resolve
-  logoOrigin: 'Where the heart forms in the field: mid-field (then glides to the HTML heart) or at the heart (beside its final spot).',
+  logoOrigin: 'Where the heart forms: the middle of the visible screen (then glides to the HTML heart) or at the heart (beside its final spot).',
   logoFieldMs: 'How long the field takes to fade in before anything else happens.',
   logoHoldMs: 'Pause between the field arriving and the heart starting to form.',
   logoPinMs: 'The heart\'s cells decode into their M / W / P letters, then fill into solid blocks.',

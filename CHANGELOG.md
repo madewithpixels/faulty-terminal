@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.13.5 — heart forms mid-screen on phones
+
+- `logoOrigin: 'centre'` now means the middle of the visible screen (`visualViewport`), kept inside the field.
+  It was the middle of the terminal element, which on iOS Safari can be taller than the area between the
+  toolbars, so the heart formed low.
+
 ## 1.13.4 — tuned lift-resolve defaults
 
 - The lift resolve now ships with the tuned timings: the heart forms mid-field (`logoOrigin: 'centre'`)
