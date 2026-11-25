@@ -447,6 +447,25 @@ In the `DEFAULTS` block below `TUNING` — less commonly changed:
 | `warmStart` | `false` | Opt-in since v1.10.1. Start at ≤0.5 render scale / ≤30fps for the first `warmStartMs` of page life (v1.10.0+) |
 | `warmStartMs` | `2000` | Length of the warm-start window (ms) |
 
+### Lift resolve (v1.13.0)
+
+The heart forms out of the field's own cells beside (or away from) the HTML
+heart, lifts off the glass pixel by pixel and glides onto it; the HTML heart
+takes over on an identical frame. Needs only the HTML heart, a 9 × 7 grid of
+pixel elements in reading order (lit pixels carry the colour):
+
+```html
+<div class="faulty-terminal" data-ft-logo-lift=".mwp-logo" data-ft-origin=".mwp-logo"></div>
+```
+
+Then `ft.resolveLogo()` after first paint (it hides the heart until the hand-off
+and resolves on it). `ft.liftTimeline` plays, pauses, seeks and relayouts;
+call `liftTimeline.relayout()` if the heart moves. The debug panel's LIFT
+RESOLVE section has the timeline: drag a lane to move it, its bright end to
+resize it, and the ripple line to time the ripple. Every option is listed in the
+panel with a one-line explanation. Reduced motion and software WebGL show the
+heart without the resolve.
+
 ### Logo resolve (v1.11.0)
 
 All off by default. With `gridLock: null`, `logoResolve: false` and

@@ -1,5 +1,52 @@
 # Changelog
 
+## 1.13.0 — lift resolve, overscan, ripple shape and colour, pulse
+
+- **Lift resolve** (`logoLift: '<selector of the HTML heart>'`). The heart forms
+  from the field's own cells: they decode into their M / W / P letters and fill
+  solid; each pixel then lifts off the glass (raspberry, coral, teal in turn, a
+  row at a time), leaving its phosphor ghost, and glides onto its HTML pixel. The
+  HTML heart takes over on a frame where the two are identical (no flare). The
+  degauss shakes the glass and blots its colour purity during the lift; lifted
+  pixels are spared. `logoOrigin`: `'target'` forms beside the HTML heart,
+  `'centre'` mid-field. Flat start (`logoCurveRamp`): the glass is flat while the
+  heart forms and curves on its own lane. Timings: `logoPinMs`, `logoLiftHoldMs`,
+  `logoLiftMs`, `logoStaggerMs`, `logoRowStagger`, `logoTravelMs`, `logoCurve*`;
+  look: `logoDepth`, `logoBloom`, `logoQuiet`, `degaussPurity`. The timings it
+  shares with the v1.11 resolve (`logoFieldMs`, `logoHoldMs`, `degauss*`,
+  `logoRippleAt`) take lift-specific defaults only when `logoLift` is set, so a
+  page still on `logoResolve` keeps its approved timings. `resolveLogo()` plays
+  it; `liftTimeline` is the seekable clock. Demo: `demo/lift.html`.
+- **Overscan** (`overscan: 'auto'`, now the default). The canvas is drawn larger
+  than its container, just enough to cover the maximum tilt, so the canvas edge
+  never shows and `vignette` sits on the visible area. Glyph pitch is unchanged.
+  Costs ~30% more pixels on wide screens. `overscan: false` = v1.12.
+- **Ripple shape**: donut ring (`rippleRingWidth`, `rippleEdgeSoft` outer edge,
+  `rippleInnerFalloff` inner edge), `rippleAspect` (ellipse), `rippleWobbleFreq`,
+  `rippleGlass` (colour on the slate between glyphs), `rippleHotCore`, echo rings
+  (`rippleEchoes`, `rippleEchoGap`, `rippleEchoDecay`), `rippleReach`,
+  `rippleCurve` (speed curve). The aftershock gets its own `aftershockReach`,
+  `aftershockWidth`, `aftershockTrail`, `aftershockColorShift`.
+- **Ripple colour**: `rippleColorMode` (vertical, horizontal, radial bands,
+  around origin, over time, per glyph), `rippleColorScale`, `rippleColorOffset`,
+  `rippleColorSpin`, `rippleColorBlend`. Every new ripple option at 0/1 draws the
+  v1.12 ring.
+- **Pulse** (`pulsePeak`, off by default): on the ripple impact the field ramps to
+  the peak values and settles back (`pulseAttackMs`, `pulseHoldMs`,
+  `pulseDecayMs`, `rasterBloom`).
+- **Debug panel**: lift timeline with draggable lanes (move / resize / ripple
+  line), editing *rest* or *pulse peak*, collapsible sections, a help line for
+  every control, `chromaticAberration` / `dither` / `overscanMargin` sliders, and
+  copy values exports `pulsePeak` and a `LIFT` block.
+- New defaults (Michael, 25 Nov 2026): see `TUNING` and `LIFT_DEFAULTS`.
+
+## Site wiring: FTLogoResolveFooter 1.13.0 (25 November 2026)
+
+- Home switches from the grid-lock resolve + flare to the lift resolve: the
+  script sets `data-ft-logo-lift` and `data-ft-origin` to `.mwp-logo` and nothing
+  else, so the timings are the engine defaults and tweakable from the panel. The
+  head script is unchanged. Needs faulty-terminal 1.13.0.
+
 ## 1.12.3 — new tuning defaults
 
 - Baked `TUNING` and `LOGO` defaults updated to the values approved on 19 Nov 2026

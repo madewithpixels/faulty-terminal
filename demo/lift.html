@@ -78,34 +78,14 @@
     logo.style.left=Math.round(x*dpr)/dpr+'px'; logo.style.top=Math.round(y*dpr)/dpr+'px';
   }
   placeLogo(); addEventListener('resize', placeLogo);
-  // Resting field = the shipped TUNING. pulsePeak = Michael's tuning, the values
-  // the field ramps to on the ripple impact and decays back from.
-  var PEAK = {
-    rippleColorFalloff: 4.30, rippleColorAmbient: 0.34, rippleColorStrength: 1.80,
-    rippleBrightness: 0.10, rippleBrightnessFalloff: 0.14, aftershockStrength: 0.30,
-    rippleWobble: 1.00, rippleWarp: 1.00, impactBurst: 2.00,
-    mwpColorStrength: 0.83, mwpDensity: 0.48, mwpFlickerSpeed: 0.40,
-    heartStrength: 2.00, heartScale: 2.25, heartFalloff: 1.50, mwpLegible: 0.89, mwpGlitch: 0.85,
-    brandMode: 3, brandStrength: 0.96, brandSpeed: 0.91, brandSoftness: 0.38, brandScale: 4.00, brandAngle: 0.93,
-    brightness: 2.00, glyphGamma: 3.80, scanlineIntensity: 0.55, glitchAmount: 2.20, flickerAmount: 0.15,
-    noiseAmp: 0.70, curvature: 0.30, mouseStrength: 0.60, digitSize: 1.25,
-    retraceSweep: 0.50, noiseDetail: 0.35
-  };
   window.q = new URLSearchParams(location.search);
   window.FaultyTerminalConfig = {
     debugPanel: true,
     softwareFallback: !q.has('sw'),        // ?sw renders even on software WebGL (testing)
     overscan: q.get('overscan') || 'auto',
-    vignette: 0.35,
-    logoLift: '#logo',
-    logoOrigin: 'centre',
-    // Michael's tuning, 24 Nov 2026
-    logoFieldMs: 550, logoHoldMs: 50,
-    logoPinMs: 890, logoLiftHoldMs: 20, logoLiftMs: 920, logoStaggerMs: 295, logoRowStagger: 53,
-    logoTravelMs: 870, logoDepth: 0.17, logoBloom: 0.88, logoQuiet: 0.46,
-    degaussOffset: 460, degaussMs: 1880, degaussAmp: 1.9, degaussDecay: 2.75, degaussPurity: 1.3,
-    logoRippleAt: -80,
-    pulsePeak: PEAK
+    // everything else (field, ripple, lift timings) is the engine's own
+    // defaults. The pulse is off until a peak is set in the panel.
+    logoLift: '#logo'
   };
 </script>
 <script src="../dist/faulty-terminal.min.js"></script>
