@@ -244,7 +244,7 @@ const DEFAULTS = {
 // Lift-resolve defaults (v1.13.4: Michael's tuned values; the heart forms mid-field
 // and glides to the HTML heart). Applied only when logoLift is set, over DEFAULTS.
 const LIFT_DEFAULTS = {
-  logoOrigin: 'centre', logoCurveRamp: true,
+  logoOrigin: 'target', logoCurveRamp: true,  // v1.13.6: forms at the heart ('centre' = mid-screen)
   logoFieldMs: 410, logoHoldMs: 0, logoPinMs: 1300, logoLiftHoldMs: 860, logoLiftMs: 920,
   logoStaggerMs: 10, logoRowStagger: 39, logoTravelMs: 350, logoDepth: 0.17, logoBloom: 1.5, logoQuiet: 0.46,
   degaussOffset: -1500, degaussMs: 3010, degaussAmp: 1.6, degaussDecay: 7.1, degaussPurity: 0.8,
@@ -2709,6 +2709,12 @@ gap:4px;padding:2px 12px;}
 .ft-row label{color:#778;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default;}
 .ft-row input[type=range]{accent-color:#3dc096;cursor:pointer;width:100%;}
 .ft-row .ftv{color:#ddd;text-align:right;font-size:11px;}
+/* v1.13.6: shield the panel from the host page's tag styles (Webflow All Labels / All Inputs) */
+#ft-debug label{display:block;margin:0;font-weight:normal;}
+#ft-debug label.ft-chk{display:flex;}
+#ft-debug input{padding:0;margin:0;}
+#ft-debug input[type=checkbox]{width:auto;}
+.ft-row input[type=checkbox]{justify-self:start;}
 #ft-dbf{padding:8px 12px;display:flex;gap:6px;border-top:1px solid #1a2a30;flex-shrink:0;}
 #ft-dbf button{flex:1;padding:5px 0;background:rgba(255,255,255,0.06);color:#bbb;
 border:1px solid #2a3a40;border-radius:4px;cursor:pointer;font:11px monospace;

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.13.6 — heart forms at the heart by default
+
+- The lift resolve now forms the heart beside its final spot (`logoOrigin: 'target'`) by default.
+  `'centre'` (the middle of the visible screen, then a glide to the heart) is still available.
+- Debug panel: shielded from the host page's tag styles. On the MWP site the Webflow "All Labels" style
+  (`display: none`) hid every slider label, and "All Inputs" (`padding: 2rem`, `width: 100%`) made each row 84px tall and
+  stretched the checkboxes.
+
 ## 1.13.5 — heart forms mid-screen on phones
 
 - `logoOrigin: 'centre'` now means the middle of the visible screen (`visualViewport`), kept inside the field.
